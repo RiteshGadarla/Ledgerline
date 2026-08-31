@@ -1,0 +1,73 @@
+{
+  "auto_rate": 0.8666666666666667,
+  "assist_rate": 0.0,
+  "open_rate": 0.13333333333333333,
+  "precision": 1.0,
+  "recall": 0.9090909090909091,
+  "false_matches": 0,
+  "by_class": {
+    "unmatchable": {
+      "precision": null,
+      "recall": 1.0,
+      "count": 1
+    },
+    "clean": {
+      "precision": null,
+      "recall": 0.8714285714285714,
+      "count": 140
+    },
+    "duplicate_payment": {
+      "precision": null,
+      "recall": 1.0,
+      "count": 1
+    },
+    "refund_in_batch": {
+      "precision": null,
+      "recall": 1.0,
+      "count": 1
+    },
+    "chargeback": {
+      "precision": null,
+      "recall": 1.0,
+      "count": 1
+    },
+    "partial_split": {
+      "precision": null,
+      "recall": 1.0,
+      "count": 1
+    },
+    "payer_name_mismatch": {
+      "precision": null,
+      "recall": 1.0,
+      "count": 1
+    },
+    "date_outside_window": {
+      "precision": null,
+      "recall": 1.0,
+      "count": 1
+    },
+    "fee_gst_delta": {
+      "precision": null,
+      "recall": 1.0,
+      "count": 1
+    },
+    "narration_missing_utr": {
+      "precision": null,
+      "recall": 0.0,
+      "count": 1
+    },
+    "unrelated_credit": {
+      "precision": null,
+      "recall": 1.0,
+      "count": 1
+    }
+  },
+  "records": 322,
+  "throughput_rps": 590779.0762822435,
+  "p50_ms": 0,
+  "p95_ms": 0,
+  "llm_requests": 0,
+  "llm_tokens": 0,
+  "llm_degraded": false,
+  "output_hash": "6a2d4b53b470b9d0a0090013b988ee00ad93cbfc586741e6535967d53208b26c"
+}
