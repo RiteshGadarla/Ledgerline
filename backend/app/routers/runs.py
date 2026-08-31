@@ -17,7 +17,17 @@ from app.deps import get_current_user
 from app.errors import NotFoundError, ValidationFailedError
 from app.redis_client import get_redis
 from contracts.models import CashForecast, Exception_, MatchGroup, RunMetrics
-from db.tenancy import RunRecord, UserRecord, create_run, get_run_for_user, list_runs_for_user
+from db.tenancy import (
+    Decision,
+    ExceptionDecisionRecord,
+    RunRecord,
+    UserRecord,
+    create_run,
+    get_run_for_user,
+    list_exception_decisions,
+    list_runs_for_user,
+    record_exception_decision,
+)
 from workers.tasks import deserialize_match_result
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -206,3 +216,48 @@ async def export_run_csv_endpoint(
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="run-{run_id}-exceptions.csv"'},
     )
+
+
+class DecisionIn(BaseModel):
+    decision: Decision
+    note: str | None = None
+
+
+class DecisionOut(BaseModel):
+    exception_id: str
+    decision: Decision
+    note: str | None
+    created_at: datetime
+
+
+def _decision_out(record: ExceptionDecisionRecord) -> DecisionOut:
+    return DecisionOut(
+        exception_id=record.exception_id, decision=record.decision, note=record.note, created_at=record.created_at
+    )
+
+
+@router.post("/{run_id}/exceptions/{exception_id}/decision", response_model=DecisionOut)
+async def record_exception_decision_endpoint(
+    run_id: str,
+    exception_id: str,
+    payload: DecisionIn,
+    user: UserRecord = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+) -> DecisionOut:
+    """Human decisions are recorded separately from the machine's own,
+    immutable output -- approving or rejecting an exception never rewrites
+    the run's result or metrics."""
+    record = await record_exception_decision(db, run_id, user.id, exception_id, payload.decision, payload.note)
+    if record is None:
+        raise NotFoundError(f"run {run_id!r} not found")
+    return _decision_out(record)
+
+
+@router.get("/{run_id}/decisions", response_model=list[DecisionOut])
+async def list_exception_decisions_endpoint(
+    run_id: str, user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> list[DecisionOut]:
+    records = await list_exception_decisions(db, run_id, user.id)
+    if records is None:
+        raise NotFoundError(f"run {run_id!r} not found")
+    return [_decision_out(record) for record in records]

@@ -3,6 +3,7 @@ from pathlib import Path
 
 from contracts.corpus import Corpus
 from contracts.models import ClassScore, MatchGroup, RunMetrics
+from contracts.money import Paise
 from datagen.generator import generate_corpus
 from datagen.models import UNMATCHABLE, Truth
 from engine.pipeline import MatchResult, match
@@ -45,6 +46,7 @@ def score_run(corpus: Corpus, result: MatchResult, truth: Truth | None, elapsed_
     records = len(corpus.invoices) + len(corpus.payments) + len(corpus.settlements) + len(corpus.bank_lines)
     throughput_rps = records / elapsed_seconds if elapsed_seconds > 0 else 0.0
     elapsed_ms = int(elapsed_seconds * 1000)
+    amount_at_risk = Paise(sum(int(exc.amount_at_risk) for exc in result.exceptions))
 
     return RunMetrics(
         auto_rate=auto_rate,
@@ -55,6 +57,8 @@ def score_run(corpus: Corpus, result: MatchResult, truth: Truth | None, elapsed_
         false_matches=false_matches,
         by_class=by_class,
         records=records,
+        open_exceptions=len(result.exceptions),
+        amount_at_risk=amount_at_risk,
         throughput_rps=throughput_rps,
         p50_ms=elapsed_ms,
         p95_ms=elapsed_ms,
@@ -128,6 +132,8 @@ def _print_report(seed: int, metrics: RunMetrics) -> None:
     print(f"  precision        {metrics.precision}")
     print(f"  recall           {metrics.recall}")
     print(f"  false_matches    {metrics.false_matches}")
+    print(f"  open_exceptions  {metrics.open_exceptions}")
+    print(f"  amount_at_risk   {metrics.amount_at_risk} paise")
     print(f"  throughput_rps   {metrics.throughput_rps:.1f}")
     print(f"  p50_ms / p95_ms  {metrics.p50_ms} / {metrics.p95_ms}")
     print(f"  llm_requests     {metrics.llm_requests}")

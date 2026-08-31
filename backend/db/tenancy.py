@@ -7,11 +7,12 @@ from sqlalchemy import CursorResult, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import Run, Session, User
+from db.models import ExceptionDecision, Run, Session, User
 from db.passwords import verify_password
 
 RunSource = Literal["demo", "dataset"]
 RunState = Literal["queued", "normalising", "matching", "triaging", "explaining", "scoring", "complete", "failed"]
+Decision = Literal["approved", "rejected"]
 
 DEFAULT_SESSION_TTL_SECONDS = 14 * 24 * 3600
 
@@ -261,3 +262,57 @@ async def fail_run(db: AsyncSession, run_id: str, error: str) -> None:
         update(Run).where(Run.id == run_id).values(state="failed", error=error, updated_at=datetime.now(UTC))
     )
     await db.commit()
+
+
+@dataclass(frozen=True)
+class ExceptionDecisionRecord:
+    exception_id: str
+    decision: Decision
+    note: str | None
+    created_at: datetime
+
+
+def _to_decision_record(row: ExceptionDecision) -> ExceptionDecisionRecord:
+    return ExceptionDecisionRecord(
+        exception_id=row.exception_id, decision=cast("Decision", row.decision), note=row.note, created_at=row.created_at
+    )
+
+
+async def record_exception_decision(
+    db: AsyncSession, run_id: str, user_id: str, exception_id: str, decision: Decision, note: str | None = None
+) -> ExceptionDecisionRecord | None:
+    """None means the run doesn't exist for this user -- the router turns
+    that into a 404, same as every other tenant-scoped lookup. A second
+    decision on the same exception overwrites the first rather than stacking
+    (approve-then-reject is a correction, not two separate facts)."""
+    run = await get_run_for_user(db, run_id, user_id)
+    if run is None:
+        return None
+
+    existing = await db.execute(
+        select(ExceptionDecision).where(
+            ExceptionDecision.run_id == run_id, ExceptionDecision.exception_id == exception_id
+        )
+    )
+    row = existing.scalar_one_or_none()
+    now = datetime.now(UTC)
+    if row is None:
+        row = ExceptionDecision(
+            id=str(uuid.uuid4()), run_id=run_id, exception_id=exception_id, decision=decision, note=note, created_at=now
+        )
+        db.add(row)
+    else:
+        row.decision = decision
+        row.note = note
+        row.created_at = now
+    await db.commit()
+    await db.refresh(row)
+    return _to_decision_record(row)
+
+
+async def list_exception_decisions(db: AsyncSession, run_id: str, user_id: str) -> list[ExceptionDecisionRecord] | None:
+    run = await get_run_for_user(db, run_id, user_id)
+    if run is None:
+        return None
+    result = await db.execute(select(ExceptionDecision).where(ExceptionDecision.run_id == run_id))
+    return [_to_decision_record(row) for row in result.scalars()]

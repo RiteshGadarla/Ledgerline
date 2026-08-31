@@ -65,3 +65,19 @@ class Run(Base):
     forecast_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ExceptionDecision(Base):
+    """A human decision on one exception from a run's result, recorded
+    separately from the machine's own (immutable) output -- approving or
+    rejecting an exception never rewrites Run.result_json or metrics_json."""
+
+    __tablename__ = "exception_decisions"
+    __table_args__ = (Index("ix_exception_decisions_run_exception", "run_id", "exception_id", unique=True),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    run_id: Mapped[str] = mapped_column(ForeignKey("runs.id", ondelete="CASCADE"), nullable=False, index=True)
+    exception_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    decision: Mapped[str] = mapped_column(String(16), nullable=False)
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

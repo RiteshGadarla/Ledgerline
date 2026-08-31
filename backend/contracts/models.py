@@ -111,6 +111,8 @@ class RunMetrics(Frozen):
     false_matches: int | None = None
     by_class: dict[str, ClassScore] | None = None
     records: int
+    open_exceptions: int
+    amount_at_risk: Paise
     throughput_rps: float
     p50_ms: int
     p95_ms: int
