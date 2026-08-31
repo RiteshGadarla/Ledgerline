@@ -1,14 +1,19 @@
 import os
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Iterator
 from datetime import date, datetime
 
 import pytest
 import redis.asyncio as redis
+from fastapi.testclient import TestClient
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from contracts.models import BankLine, Invoice, Payment, Settlement
 from contracts.money import Paise
 
 REDIS_TEST_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/15")
+DATABASE_TEST_URL = os.environ.get(
+    "DATABASE_TEST_URL", "postgresql+asyncpg://ledgerline:ledgerline@localhost:5432/ledgerline"
+)
 
 
 @pytest.fixture
@@ -26,6 +31,71 @@ async def redis_client() -> AsyncIterator[redis.Redis]:
     finally:
         await client.flushdb()
         await client.aclose()
+
+
+@pytest.fixture
+async def db_engine() -> AsyncIterator[AsyncEngine]:
+    from sqlalchemy.pool import NullPool
+
+    from db.base import Base, make_engine
+    from db.models import Session, User  # noqa: F401  (registers tables on Base.metadata)
+
+    # NullPool: TestClient runs the ASGI app in its own event loop (a
+    # different one from this fixture's), so an idle pooled connection
+    # created here would be handed to that other loop and blow up with
+    # "Future attached to a different loop". NullPool opens a fresh
+    # connection per checkout instead of keeping any around to leak across
+    # loops.
+    engine = make_engine(DATABASE_TEST_URL, poolclass=NullPool)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+    except Exception:
+        await engine.dispose()
+        pytest.skip(
+            f"Postgres not reachable at {DATABASE_TEST_URL}; "
+            "start it with `docker compose -f docker/compose.yaml up -d`"
+        )
+    try:
+        yield engine
+    finally:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.drop_all)
+        await engine.dispose()
+
+
+@pytest.fixture
+async def db_session_factory(db_engine: AsyncEngine):  # type: ignore[no-untyped-def]
+    from db.base import make_session_factory
+
+    return make_session_factory(db_engine)
+
+
+@pytest.fixture
+def auth_client(db_engine: AsyncEngine, db_session_factory, redis_client: redis.Redis) -> Iterator[TestClient]:  # type: ignore[no-untyped-def]
+    from app.main import app
+
+    # redis_client (above) only proves Redis is reachable and leaves it
+    # flushed; the app itself gets its own never-yet-connected client so its
+    # connections open lazily on whatever loop TestClient actually runs the
+    # ASGI app in, rather than reusing one already bound to this fixture's loop.
+    app_redis: redis.Redis = redis.from_url(REDIS_TEST_URL)
+    app.state.db_engine = db_engine
+    app.state.db_session_factory = db_session_factory
+    app.state.redis_client = app_redis
+    try:
+        with TestClient(app) as client:
+            yield client
+    finally:
+        import asyncio
+        import contextlib
+
+        # TestClient's background event loop is already gone by this point,
+        # and app_redis's connections belong to it -- closing cleanly isn't
+        # possible from here, so just drop the reference rather than raise
+        # out of teardown for an already-finished test.
+        with contextlib.suppress(RuntimeError):
+            asyncio.run(app_redis.aclose())
 
 
 def make_invoice(id_: str, amount: int, issued: date = date(2024, 1, 1), ref: str | None = None) -> Invoice:
