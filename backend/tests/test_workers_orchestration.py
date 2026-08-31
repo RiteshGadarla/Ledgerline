@@ -5,9 +5,19 @@ from typing import Any
 import redis.asyncio as redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from datagen.generator import generate_corpus
+from datagen.serialize import truth_to_dict
 from db.passwords import hash_password
-from db.tenancy import create_run, create_user, get_run_for_user
+from db.tenancy import (
+    create_dataset,
+    create_run,
+    create_user,
+    get_run_for_user,
+    recompute_dataset_status,
+    upsert_dataset_file,
+)
 from engine.pipeline import deserialize_match_result
+from ingest.dataset_records import records_to_json
 from llm.cache import ResponseCache
 from llm.client import FakeClient
 from llm.gateway import LlmGateway
@@ -57,11 +67,11 @@ async def test_run_reconciliation_completes_a_demo_run(
     assert isinstance(result.output_hash, str) and result.output_hash
 
 
-async def test_run_reconciliation_fails_cleanly_for_unsupported_source(
+async def test_run_reconciliation_fails_cleanly_for_a_dataset_that_does_not_exist(
     db_session_factory: async_sessionmaker[AsyncSession], redis_client: redis.Redis
 ) -> None:
-    """No dataset storage exists yet (Phase 8's ingest/ only parses
-    in-memory), so a dataset-sourced run must fail with a typed error rather
+    """A run created directly against a dataset_id that was never persisted
+    (or belongs to no dataset at all) must fail with a typed error rather
     than silently pretending to complete."""
     async with db_session_factory() as db:
         user = await create_user(db, "dataset-user", hash_password("x"))
@@ -75,6 +85,61 @@ async def test_run_reconciliation_fails_cleanly_for_unsupported_source(
     assert failed.state == "failed"
     assert failed.error is not None
     assert failed.result_json is None  # partial results are never presented as complete
+
+
+async def test_run_reconciliation_completes_a_dataset_run_and_preserves_truth_scoring(
+    db_session_factory: async_sessionmaker[AsyncSession], redis_client: redis.Redis
+) -> None:
+    """A dataset-backed run rebuilds its Corpus from persisted DatasetFile
+    rows rather than re-generating one -- and for a "generated" dataset, the
+    ground truth saved alongside it must come back too, so precision/recall
+    are still real numbers instead of degrading to None the way an uploaded
+    (truth-less) dataset legitimately does."""
+    corpus, truth = generate_corpus(1001, 30)
+    role_records: dict[str, list[Any]] = {
+        "ledger": corpus.invoices,
+        "gateway": corpus.payments,
+        "settlement": corpus.settlements,
+        "bank": corpus.bank_lines,
+    }
+    async with db_session_factory() as db:
+        user = await create_user(db, "dataset-runner", hash_password("x"))
+        dataset = await create_dataset(
+            db,
+            user.id,
+            "generated corpus",
+            "generated",
+            seed=1001,
+            size=30,
+            truth_json=json.dumps(truth_to_dict(truth)),
+        )
+        for role, records in role_records.items():
+            await upsert_dataset_file(
+                db,
+                dataset.id,
+                role,  # type: ignore[arg-type]
+                raw_filename=None,
+                raw_content_type=None,
+                raw_content=None,
+                records_json=records_to_json(role, records),  # type: ignore[arg-type]
+                row_count=len(records),
+                valid_count=len(records),
+            )
+        await recompute_dataset_status(db, dataset.id)
+        run, _created = await create_run(db, user.id, "dataset", dataset_id=dataset.id)
+
+    await run_reconciliation(_ctx(db_session_factory, redis_client), run.id, user.id)
+
+    async with db_session_factory() as db:
+        completed = await get_run_for_user(db, run.id, user.id)
+    assert completed is not None
+    assert completed.state == "complete"
+    assert completed.error is None
+    assert completed.result_json is not None
+    assert completed.metrics_json is not None
+    metrics = json.loads(completed.metrics_json)
+    assert metrics["precision"] is not None
+    assert metrics["recall"] is not None
 
 
 async def test_ten_concurrent_runs_from_different_users_do_not_bleed_state(

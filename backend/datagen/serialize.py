@@ -6,7 +6,8 @@ from typing import Any
 
 from contracts.corpus import Corpus
 from contracts.money import Paise
-from datagen.models import Truth
+from datagen.difficulty import DifficultyClass
+from datagen.models import Truth, TruthGroup
 from money.parse import format_paise
 
 _FILENAMES = {
@@ -60,6 +61,15 @@ def truth_to_dict(truth: Truth) -> dict[str, object]:
         "record_group": dict(truth.record_group),
         "record_difficulty": {key: value.value for key, value in truth.record_difficulty.items()},
     }
+
+
+def truth_from_dict(data: dict[str, Any]) -> Truth:
+    """The inverse of truth_to_dict -- used to restore a generated dataset's
+    ground truth for scoring when a run executes against a persisted dataset
+    rather than a freshly generated corpus."""
+    groups = {gid: TruthGroup(**group) for gid, group in data["groups"].items()}
+    record_difficulty = {key: DifficultyClass(value) for key, value in data["record_difficulty"].items()}
+    return Truth(groups=groups, record_group=dict(data["record_group"]), record_difficulty=record_difficulty)
 
 
 def _write_csv(path: Path, rows: list[dict[str, str]]) -> None:

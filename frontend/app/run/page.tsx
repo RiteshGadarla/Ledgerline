@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { RequireAuth } from "@/components/RequireAuth";
 import { StatusBadge } from "@/components/StatusBadge";
@@ -8,18 +8,37 @@ import { api } from "@/lib/api/client";
 import type { components } from "@/lib/api/client";
 
 type RunOut = components["schemas"]["RunOut"];
+type DatasetOut = components["schemas"]["DatasetOut"];
 
 function RunSurface() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const [source, setSource] = useState<"demo" | "dataset">("demo");
   const [seed, setSeed] = useState("1001");
   const [size, setSize] = useState("150");
+  const [datasets, setDatasets] = useState<DatasetOut[] | null>(null);
+  const [datasetId, setDatasetId] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [runs, setRuns] = useState<RunOut[] | null>(null);
 
   useEffect(() => {
     api.GET("/runs").then(({ data }) => setRuns(data ?? []));
+    api.GET("/datasets").then(({ data }) => {
+      const ready = (data ?? []).filter((d) => d.status === "ready");
+      setDatasets(ready);
+      const requested = searchParams.get("dataset");
+      if (requested && ready.some((d) => d.id === requested)) {
+        setSource("dataset");
+        setDatasetId(requested);
+      } else if (ready.length > 0) {
+        setDatasetId(ready[0].id);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const datasetById = Object.fromEntries((datasets ?? []).map((d) => [d.id, d]));
 
   async function closeTheBooks(event: React.FormEvent) {
     event.preventDefault();
@@ -27,11 +46,14 @@ function RunSurface() {
     setError(null);
 
     const { data, error: apiError } = await api.POST("/runs", {
-      body: {
-        source: "demo",
-        seed: seed ? Number(seed) : undefined,
-        size: size ? Number(size) : undefined,
-      },
+      body:
+        source === "demo"
+          ? {
+              source: "demo",
+              seed: seed ? Number(seed) : undefined,
+              size: size ? Number(size) : undefined,
+            }
+          : { source: "dataset", dataset_id: datasetId },
     });
 
     setSubmitting(false);
@@ -47,31 +69,74 @@ function RunSurface() {
       <section>
         <h1 className="text-lg font-semibold">Run</h1>
         <p className="mt-1 text-sm text-muted">
-          Close the books on a synthetic demo corpus. Bring-your-own-data runs are coming soon.
+          Close the books on a synthetic demo corpus, or on one of your own datasets from the Data page.
         </p>
 
-        <form onSubmit={closeTheBooks} className="mt-6 flex flex-wrap items-end gap-4">
-          <label className="flex flex-col gap-1 text-sm">
-            Seed
-            <input
-              className="w-32 border border-hairline px-3 py-2 font-mono text-sm tabular"
-              inputMode="numeric"
-              value={seed}
-              onChange={(e) => setSeed(e.target.value)}
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            Size
-            <input
-              className="w-32 border border-hairline px-3 py-2 font-mono text-sm tabular"
-              inputMode="numeric"
-              value={size}
-              onChange={(e) => setSize(e.target.value)}
-            />
-          </label>
+        <div className="mt-6 flex gap-3">
+          <button
+            type="button"
+            onClick={() => setSource("demo")}
+            className={"border px-3 py-1.5 text-sm " + (source === "demo" ? "border-foreground font-medium" : "border-hairline text-muted")}
+          >
+            Demo corpus
+          </button>
+          <button
+            type="button"
+            onClick={() => setSource("dataset")}
+            className={"border px-3 py-1.5 text-sm " + (source === "dataset" ? "border-foreground font-medium" : "border-hairline text-muted")}
+          >
+            My dataset
+          </button>
+        </div>
+
+        <form onSubmit={closeTheBooks} className="mt-4 flex flex-wrap items-end gap-4">
+          {source === "demo" ? (
+            <>
+              <label className="flex flex-col gap-1 text-sm">
+                Seed
+                <input
+                  className="w-32 border border-hairline px-3 py-2 font-mono text-sm tabular"
+                  inputMode="numeric"
+                  value={seed}
+                  onChange={(e) => setSeed(e.target.value)}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                Size
+                <input
+                  className="w-32 border border-hairline px-3 py-2 font-mono text-sm tabular"
+                  inputMode="numeric"
+                  value={size}
+                  onChange={(e) => setSize(e.target.value)}
+                />
+              </label>
+            </>
+          ) : datasets === null ? (
+            <p className="text-sm text-muted">Loading your datasets…</p>
+          ) : datasets.length === 0 ? (
+            <p className="text-sm text-muted">
+              You don&apos;t have a ready dataset yet -- head to <a href="/data" className="underline">Data</a> to
+              generate or upload one.
+            </p>
+          ) : (
+            <label className="flex flex-col gap-1 text-sm">
+              Dataset
+              <select
+                value={datasetId}
+                onChange={(e) => setDatasetId(e.target.value)}
+                className="w-64 border border-hairline px-3 py-2 text-sm"
+              >
+                {datasets.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <button
             type="submit"
-            disabled={submitting}
+            disabled={submitting || (source === "dataset" && !datasetId)}
             className="border border-foreground bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-50"
           >
             {submitting ? "Starting…" : "Close the books"}
@@ -95,6 +160,7 @@ function RunSurface() {
             <thead>
               <tr className="border-b border-hairline text-left text-muted">
                 <th scope="col" className="py-2 font-normal">Run</th>
+                <th scope="col" className="py-2 font-normal">Source</th>
                 <th scope="col" className="py-2 font-normal">Started</th>
                 <th scope="col" className="py-2 font-normal">Status</th>
               </tr>
@@ -106,6 +172,9 @@ function RunSurface() {
                     <a href={`/runs/${run.id}`} className="font-mono underline">
                       {run.id.slice(0, 8)}
                     </a>
+                  </td>
+                  <td className="py-2 text-muted">
+                    {run.source === "demo" ? "Demo" : datasetById[run.dataset_id ?? ""]?.name ?? "Dataset"}
                   </td>
                   <td className="py-2 text-muted">{new Date(run.created_at).toLocaleString()}</td>
                   <td className="py-2">

@@ -7,12 +7,17 @@ from sqlalchemy import CursorResult, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from db.models import ExceptionDecision, Run, Session, User
+from db.models import Dataset, DatasetFile, ExceptionDecision, Run, Session, User
 from db.passwords import verify_password
 
 RunSource = Literal["demo", "dataset"]
 RunState = Literal["queued", "normalising", "matching", "triaging", "explaining", "scoring", "complete", "failed"]
 Decision = Literal["approved", "rejected"]
+DatasetSource = Literal["generated", "uploaded"]
+DatasetStatus = Literal["incomplete", "ready"]
+DatasetRole = Literal["ledger", "gateway", "settlement", "bank"]
+
+REQUIRED_DATASET_ROLES: tuple[DatasetRole, ...] = ("ledger", "gateway", "settlement", "bank")
 
 DEFAULT_SESSION_TTL_SECONDS = 14 * 24 * 3600
 
@@ -316,3 +321,191 @@ async def list_exception_decisions(db: AsyncSession, run_id: str, user_id: str) 
         return None
     result = await db.execute(select(ExceptionDecision).where(ExceptionDecision.run_id == run_id))
     return [_to_decision_record(row) for row in result.scalars()]
+
+
+@dataclass(frozen=True)
+class DatasetRecord:
+    id: str
+    user_id: str
+    name: str
+    source: DatasetSource
+    seed: int | None
+    size: int | None
+    status: DatasetStatus
+    truth_json: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+@dataclass(frozen=True)
+class DatasetFileRecord:
+    id: str
+    dataset_id: str
+    role: DatasetRole
+    raw_filename: str | None
+    raw_content_type: str | None
+    records_json: str
+    row_count: int
+    valid_count: int
+    created_at: datetime
+
+
+def _to_dataset_record(row: Dataset) -> DatasetRecord:
+    return DatasetRecord(
+        id=row.id,
+        user_id=row.user_id,
+        name=row.name,
+        source=cast("DatasetSource", row.source),
+        seed=row.seed,
+        size=row.size,
+        status=cast("DatasetStatus", row.status),
+        truth_json=row.truth_json,
+        created_at=row.created_at,
+        updated_at=row.updated_at,
+    )
+
+
+def _to_dataset_file_record(row: DatasetFile) -> DatasetFileRecord:
+    return DatasetFileRecord(
+        id=row.id,
+        dataset_id=row.dataset_id,
+        role=cast("DatasetRole", row.role),
+        raw_filename=row.raw_filename,
+        raw_content_type=row.raw_content_type,
+        records_json=row.records_json,
+        row_count=row.row_count,
+        valid_count=row.valid_count,
+        created_at=row.created_at,
+    )
+
+
+async def create_dataset(
+    db: AsyncSession,
+    user_id: str,
+    name: str,
+    source: DatasetSource,
+    seed: int | None = None,
+    size: int | None = None,
+    truth_json: str | None = None,
+) -> DatasetRecord:
+    now = datetime.now(UTC)
+    dataset = Dataset(
+        id=str(uuid.uuid4()),
+        user_id=user_id,
+        name=name,
+        source=source,
+        seed=seed,
+        size=size,
+        status="incomplete",
+        truth_json=truth_json,
+        created_at=now,
+        updated_at=now,
+    )
+    db.add(dataset)
+    await db.commit()
+    await db.refresh(dataset)
+    return _to_dataset_record(dataset)
+
+
+async def get_dataset_for_user(db: AsyncSession, dataset_id: str, user_id: str) -> DatasetRecord | None:
+    """Scoped by user_id, same as every other tenant-scoped lookup: a dataset
+    belonging to another user is indistinguishable from a nonexistent one."""
+    result = await db.execute(select(Dataset).where(Dataset.id == dataset_id, Dataset.user_id == user_id))
+    dataset = result.scalar_one_or_none()
+    return _to_dataset_record(dataset) if dataset is not None else None
+
+
+async def list_datasets_for_user(db: AsyncSession, user_id: str, limit: int = 50) -> list[DatasetRecord]:
+    result = await db.execute(
+        select(Dataset).where(Dataset.user_id == user_id).order_by(Dataset.created_at.desc()).limit(limit)
+    )
+    return [_to_dataset_record(row) for row in result.scalars()]
+
+
+async def list_dataset_files(db: AsyncSession, dataset_id: str) -> list[DatasetFileRecord]:
+    """Not itself tenant-scoped -- callers must first confirm ownership of
+    dataset_id via get_dataset_for_user, exactly like list_exception_decisions
+    relies on its caller having already resolved the parent run."""
+    result = await db.execute(select(DatasetFile).where(DatasetFile.dataset_id == dataset_id))
+    return [_to_dataset_file_record(row) for row in result.scalars()]
+
+
+async def upsert_dataset_file(
+    db: AsyncSession,
+    dataset_id: str,
+    role: DatasetRole,
+    raw_filename: str | None,
+    raw_content_type: str | None,
+    raw_content: bytes | None,
+    records_json: str,
+    row_count: int,
+    valid_count: int,
+) -> DatasetFileRecord:
+    """Re-uploading the same role overwrites the previous file rather than
+    stacking, matching the unique (dataset_id, role) index."""
+    existing = await db.execute(
+        select(DatasetFile).where(DatasetFile.dataset_id == dataset_id, DatasetFile.role == role)
+    )
+    row = existing.scalar_one_or_none()
+    now = datetime.now(UTC)
+    if row is None:
+        row = DatasetFile(
+            id=str(uuid.uuid4()),
+            dataset_id=dataset_id,
+            role=role,
+            raw_filename=raw_filename,
+            raw_content_type=raw_content_type,
+            raw_content=raw_content,
+            records_json=records_json,
+            row_count=row_count,
+            valid_count=valid_count,
+            created_at=now,
+        )
+        db.add(row)
+    else:
+        row.raw_filename = raw_filename
+        row.raw_content_type = raw_content_type
+        row.raw_content = raw_content
+        row.records_json = records_json
+        row.row_count = row_count
+        row.valid_count = valid_count
+        row.created_at = now
+    await db.commit()
+    await db.refresh(row)
+    return _to_dataset_file_record(row)
+
+
+@dataclass(frozen=True)
+class DatasetFileRawRecord:
+    raw_filename: str | None
+    raw_content_type: str | None
+    raw_content: bytes | None
+
+
+async def get_dataset_file_raw(db: AsyncSession, dataset_id: str, role: DatasetRole) -> DatasetFileRawRecord | None:
+    """Callers must already have confirmed dataset ownership via
+    get_dataset_for_user before calling this -- kept as its own lookup
+    (rather than folded into DatasetFileRecord) so listing datasets never
+    pulls raw file bytes into memory."""
+    result = await db.execute(select(DatasetFile).where(DatasetFile.dataset_id == dataset_id, DatasetFile.role == role))
+    row = result.scalar_one_or_none()
+    if row is None:
+        return None
+    return DatasetFileRawRecord(
+        raw_filename=row.raw_filename, raw_content_type=row.raw_content_type, raw_content=row.raw_content
+    )
+
+
+async def recompute_dataset_status(db: AsyncSession, dataset_id: str) -> DatasetStatus:
+    files = await list_dataset_files(db, dataset_id)
+    by_role = {f.role: f for f in files}
+    status: DatasetStatus = (
+        "ready"
+        if all(by_role.get(role) is not None and by_role[role].valid_count > 0 for role in REQUIRED_DATASET_ROLES)
+        else "incomplete"
+    )
+    await db.execute(
+        update(Dataset).where(Dataset.id == dataset_id).values(status=status, updated_at=datetime.now(UTC))
+    )
+    await db.commit()
+    return status

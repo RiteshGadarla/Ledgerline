@@ -23,6 +23,7 @@ from db.tenancy import (
     RunRecord,
     UserRecord,
     create_run,
+    get_dataset_for_user,
     get_run_for_user,
     list_exception_decisions,
     list_runs_for_user,
@@ -47,6 +48,7 @@ class RunCreate(BaseModel):
 class RunOut(BaseModel):
     id: str
     source: str
+    dataset_id: str | None
     state: str
     error: str | None
     metrics: RunMetrics | None
@@ -67,6 +69,7 @@ def _run_out(run: RunRecord) -> RunOut:
     return RunOut(
         id=run.id,
         source=run.source,
+        dataset_id=run.dataset_id,
         state=run.state,
         error=run.error,
         metrics=metrics,
@@ -93,6 +96,15 @@ async def create_run_endpoint(
     if payload.mutations:
         # The adversarial mutation engine (Phase 13) doesn't exist yet.
         raise ValidationFailedError("mutations are not yet supported")
+
+    if payload.source == "dataset":
+        if not payload.dataset_id:
+            raise ValidationFailedError("dataset_id is required when source is 'dataset'")
+        dataset = await get_dataset_for_user(db, payload.dataset_id, user.id)
+        if dataset is None:
+            raise NotFoundError(f"dataset {payload.dataset_id!r} not found")
+        if dataset.status != "ready":
+            raise ValidationFailedError(f"dataset {payload.dataset_id!r} is missing required files")
 
     run, created = await create_run(
         db,

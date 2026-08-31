@@ -227,7 +227,8 @@ export interface paths {
          * Preview Endpoint
          * @description Parses the upload and asks the LLM to propose a header-to-canonical-
          *     field mapping. Nothing is persisted -- the caller confirms or overrides
-         *     the mapping and re-submits the same file to /data/validate.
+         *     the mapping and re-submits the same file to /data/validate (or, to save
+         *     it as a reusable dataset, to /datasets/{id}/files).
          */
         post: operations["preview_endpoint_data_preview_post"];
         delete?: never;
@@ -251,6 +252,103 @@ export interface paths {
          *     file health report: how many rows are usable and why the rest aren't.
          */
         post: operations["validate_endpoint_data_validate_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/datasets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Datasets Endpoint */
+        get: operations["list_datasets_endpoint_datasets_get"];
+        put?: never;
+        /**
+         * Create Dataset Endpoint
+         * @description A "generated" dataset is built and persisted synchronously (it's a
+         *     pure, fast, in-memory computation) and comes back already "ready". An
+         *     "uploaded" dataset starts empty -- the caller adds each role's file via
+         *     POST /datasets/{id}/files, and it becomes "ready" once all four are in.
+         */
+        post: operations["create_dataset_endpoint_datasets_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/datasets/{dataset_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Dataset Endpoint */
+        get: operations["get_dataset_endpoint_datasets__dataset_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/datasets/{dataset_id}/files": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Dataset File Endpoint
+         * @description Applies a confirmed mapping (from /data/preview) and persists both the
+         *     original file and the validated canonical records for this role, then
+         *     recomputes whether the dataset is ready to run.
+         */
+        post: operations["upload_dataset_file_endpoint_datasets__dataset_id__files_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/datasets/{dataset_id}/files/{role}/records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Dataset File Records Endpoint */
+        get: operations["get_dataset_file_records_endpoint_datasets__dataset_id__files__role__records_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/datasets/{dataset_id}/files/{role}/raw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Dataset File Raw Endpoint */
+        get: operations["get_dataset_file_raw_endpoint_datasets__dataset_id__files__role__raw_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -299,6 +397,18 @@ export interface components {
             /** File */
             file: string;
         };
+        /** Body_upload_dataset_file_endpoint_datasets__dataset_id__files_post */
+        Body_upload_dataset_file_endpoint_datasets__dataset_id__files_post: {
+            /** Role */
+            role: string;
+            /**
+             * Mapping
+             * @description JSON-encoded list of {source_header, canonical_field, confidence}
+             */
+            mapping: string;
+            /** File */
+            file: string;
+        };
         /** Body_validate_endpoint_data_validate_post */
         Body_validate_endpoint_data_validate_post: {
             /** Role */
@@ -339,6 +449,80 @@ export interface components {
             username: string;
             /** Password */
             password: string;
+        };
+        /** DatasetCreate */
+        DatasetCreate: {
+            /** Name */
+            name: string;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "generated" | "uploaded";
+            /** Seed */
+            seed?: number | null;
+            /** Size */
+            size?: number | null;
+        };
+        /** DatasetFileOut */
+        DatasetFileOut: {
+            /** Role */
+            role: string;
+            /** Raw Filename */
+            raw_filename: string | null;
+            /** Has Raw */
+            has_raw: boolean;
+            /** Row Count */
+            row_count: number;
+            /** Valid Count */
+            valid_count: number;
+        };
+        /** DatasetFileUploadOut */
+        DatasetFileUploadOut: {
+            dataset: components["schemas"]["DatasetOut"];
+            /** Total Rows */
+            total_rows: number;
+            /** Valid Count */
+            valid_count: number;
+            /** Errors */
+            errors: components["schemas"]["RowErrorOut"][];
+        };
+        /** DatasetOut */
+        DatasetOut: {
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Source */
+            source: string;
+            /** Seed */
+            seed: number | null;
+            /** Size */
+            size: number | null;
+            /** Status */
+            status: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Files */
+            files: components["schemas"]["DatasetFileOut"][];
+        };
+        /** DatasetRecordsOut */
+        DatasetRecordsOut: {
+            /** Role */
+            role: string;
+            /** Total */
+            total: number;
+            /** Offset */
+            offset: number;
+            /** Limit */
+            limit: number;
+            /** Records */
+            records: {
+                [key: string]: unknown;
+            }[];
         };
         /** DecisionIn */
         DecisionIn: {
@@ -574,6 +758,8 @@ export interface components {
             id: string;
             /** Source */
             source: string;
+            /** Dataset Id */
+            dataset_id: string | null;
             /** State */
             state: string;
             /** Error */
@@ -1059,6 +1245,192 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_datasets_endpoint_datasets_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetOut"][];
+                };
+            };
+        };
+    };
+    create_dataset_endpoint_datasets_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DatasetCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_dataset_endpoint_datasets__dataset_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    upload_dataset_file_endpoint_datasets__dataset_id__files_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_dataset_file_endpoint_datasets__dataset_id__files_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetFileUploadOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_dataset_file_records_endpoint_datasets__dataset_id__files__role__records_get: {
+        parameters: {
+            query?: {
+                offset?: number;
+                limit?: number;
+            };
+            header?: never;
+            path: {
+                dataset_id: string;
+                role: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetRecordsOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_dataset_file_raw_endpoint_datasets__dataset_id__files__role__raw_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+                role: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

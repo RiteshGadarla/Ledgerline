@@ -38,7 +38,7 @@ async def db_engine() -> AsyncIterator[AsyncEngine]:
     from sqlalchemy.pool import NullPool
 
     from db.base import Base, make_engine
-    from db.models import Run, Session, User  # noqa: F401  (registers tables on Base.metadata)
+    from db.models import Dataset, DatasetFile, Run, Session, User  # noqa: F401  (registers tables on Base.metadata)
 
     # NullPool: TestClient runs the ASGI app in its own event loop (a
     # different one from this fixture's), so an idle pooled connection

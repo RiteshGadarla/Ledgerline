@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Index, Integer, String, Text, text
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, LargeBinary, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -65,6 +65,45 @@ class Run(Base):
     forecast_json: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class Dataset(Base):
+    """A user's bring-your-own or generated corpus, persisted so a run can
+    reference it later -- unlike /data/preview's ephemeral parse-only path.
+    A dataset is "ready" once all four roles have at least one valid row."""
+
+    __tablename__ = "datasets"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    source: Mapped[str] = mapped_column(String(16), nullable=False)
+    seed: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    size: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="incomplete")
+    truth_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class DatasetFile(Base):
+    """One role's worth of a dataset: the original upload (if any -- a
+    generated dataset has none) plus the canonical records it validated to,
+    stored as JSON so a run can rebuild a Corpus without re-parsing."""
+
+    __tablename__ = "dataset_files"
+    __table_args__ = (Index("ix_dataset_files_dataset_role", "dataset_id", "role", unique=True),)
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
+    dataset_id: Mapped[str] = mapped_column(ForeignKey("datasets.id", ondelete="CASCADE"), nullable=False, index=True)
+    role: Mapped[str] = mapped_column(String(16), nullable=False)
+    raw_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    raw_content_type: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    raw_content: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    records_json: Mapped[str] = mapped_column(Text, nullable=False)
+    row_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    valid_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
 class ExceptionDecision(Base):
