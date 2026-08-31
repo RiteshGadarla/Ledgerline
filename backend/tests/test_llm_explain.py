@@ -43,11 +43,12 @@ async def test_explain_annotates_matching_exceptions_by_id(redis_client: redis.R
     client = FakeClient({prompt: fixture})
     gateway = _gateway(redis_client, client)
 
-    annotated, input_tokens, output_tokens = await explain(exceptions, gateway, user_id="u1")
+    annotated, input_tokens, output_tokens, degraded = await explain(exceptions, gateway, user_id="u1")
 
     assert annotated[0].explanation == "No bank credit found."
     assert annotated[0].suggested_action == "Check payout status."
     assert input_tokens > 0 and output_tokens > 0
+    assert degraded is False
 
 
 async def test_explain_degrades_gracefully_leaving_template_action(redis_client: redis.Redis) -> None:
@@ -55,18 +56,20 @@ async def test_explain_degrades_gracefully_leaving_template_action(redis_client:
     client = FakeClient({})  # no fixture recorded -> LlmUnavailable inside the gateway's client call
 
     gateway = _gateway(redis_client, client)
-    annotated, input_tokens, output_tokens = await explain(exceptions, gateway, user_id="u1")
+    annotated, input_tokens, output_tokens, degraded = await explain(exceptions, gateway, user_id="u1")
 
     assert annotated == exceptions
     assert annotated[0].suggested_action == "template action"
     assert input_tokens == 0 and output_tokens == 0
+    assert degraded is True
 
 
 async def test_explain_with_empty_list_issues_no_request(redis_client: redis.Redis) -> None:
     client = FakeClient({})
     gateway = _gateway(redis_client, client)
 
-    annotated, input_tokens, output_tokens = await explain([], gateway, user_id="u1")
+    annotated, input_tokens, output_tokens, degraded = await explain([], gateway, user_id="u1")
 
     assert annotated == []
     assert input_tokens == 0 and output_tokens == 0
+    assert degraded is False

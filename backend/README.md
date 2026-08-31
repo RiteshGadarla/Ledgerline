@@ -26,7 +26,19 @@ uv run lint-imports
 uv run pytest -q
 ```
 
-Postgres- and Redis-backed tests (`tests/test_db_tenancy.py`, `tests/test_auth_api.py`, `tests/test_llm_*`) skip themselves with an actionable message if those services aren't running.
+Postgres- and Redis-backed tests (`tests/test_db_tenancy.py`, `tests/test_auth_api.py`, `tests/test_llm_*`) skip themselves with an actionable message if those services aren't running. They run against a separate `ledgerline_test` database (`DATABASE_TEST_URL`, created by `docker/postgres-init/001-create-test-db.sql` on a fresh volume), created and dropped per test via `Base.metadata` -- so running the suite never touches the `ledgerline` dev database `alembic upgrade` targets.
+
+## Running a worker
+
+Runs execute in a separate arq worker process, not in the request handler:
+
+```
+DATABASE_URL=postgresql+asyncpg://ledgerline:ledgerline@localhost:5432/ledgerline REDIS_URL=redis://localhost:6379 uv run arq workers.main.WorkerSettings
+```
+
+`POST /runs` enqueues a job under the run's own id (so arq's own id-based dedup backs up the DB-level idempotency-key check), and the worker persists each state-machine transition (`queued -> normalising -> matching -> triaging -> explaining -> scoring -> complete|failed`) to the run's row and publishes it on the `run:{id}` Redis pub/sub channel. `GET /runs/{id}/stream` (SSE) reads the row first and only then subscribes -- a client that connects after the run has already finished sees the terminal state immediately, and any API replica can serve any run's stream since nothing is held in worker or API process memory.
+
+Dataset-sourced runs (`source: "dataset"`) fail immediately with a typed error: dataset persistence doesn't exist yet (Phase 8's `ingest/` only parses in-memory), so only `source: "demo"` actually runs end to end today. The `mutations` field is rejected outright for the same reason -- the adversarial mutation engine (Phase 13) hasn't been built.
 
 ## Database migrations
 

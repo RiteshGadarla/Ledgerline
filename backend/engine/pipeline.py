@@ -102,10 +102,10 @@ def match(corpus: Corpus) -> MatchResult:
                 build_exception("bank_line", bank_line_id, ExceptionCode.UNIDENTIFIED_CREDIT, index, attempted=["P1"])
             )
 
-    return MatchResult(groups=groups, exceptions=exceptions, output_hash=_hash_groups(groups))
+    return MatchResult(groups=groups, exceptions=exceptions, output_hash=hash_groups(groups))
 
 
-def _hash_groups(groups: list[MatchGroup]) -> str:
+def hash_groups(groups: list[MatchGroup]) -> str:
     canonical = sorted(
         (
             group.id,

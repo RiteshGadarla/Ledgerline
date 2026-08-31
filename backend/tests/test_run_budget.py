@@ -82,7 +82,7 @@ async def _run_full_pipeline(seed: int, redis_client: redis.Redis) -> tuple[int,
     explain_fixtures = _well_behaved_fixtures([], remaining_exceptions, index)
     explain_client = FakeClient(explain_fixtures)
     explain_gateway = _gateway(redis_client, explain_client)
-    _annotated, explain_in_tokens, explain_out_tokens = await explain(
+    _annotated, explain_in_tokens, explain_out_tokens, _degraded = await explain(
         remaining_exceptions, explain_gateway, user_id=f"seed-{seed}"
     )
 
@@ -110,7 +110,7 @@ async def test_demo_like_clean_run_issues_zero_requests(redis_client: redis.Redi
     # Simulate the fully-resolved case directly: an empty residue list costs nothing.
     client = FakeClient({})
     gateway = _gateway(redis_client, client)
-    _annotated, in_tokens, out_tokens = await explain([], gateway, user_id="u1")
+    _annotated, in_tokens, out_tokens, _degraded = await explain([], gateway, user_id="u1")
 
     assert len(client.calls) == 0
     assert in_tokens == 0 and out_tokens == 0

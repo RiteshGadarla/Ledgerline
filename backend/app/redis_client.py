@@ -5,7 +5,7 @@ from app.errors import ProblemDetailError
 
 
 def init_redis(app: FastAPI, redis_url: str) -> None:
-    app.state.redis_client = redis.from_url(redis_url)
+    app.state.redis_client = redis.from_url(redis_url)  # type: ignore[no-untyped-call]
 
 
 async def dispose_redis(app: FastAPI) -> None:

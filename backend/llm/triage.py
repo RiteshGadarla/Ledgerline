@@ -27,6 +27,7 @@ class TriageOutcome:
     used: UsedRecordIds
     requests_issued: int
     tokens_used: int
+    degraded: bool
 
 
 def build_candidates(
@@ -155,6 +156,7 @@ async def run_triage(
     exceptions: list[Exception_] = []
     requests_issued = 0
     tokens_used = 0
+    degraded = False
 
     for candidate in build_candidates(settlement_ids, index, unresolved_bank_line_ids):
         prompt = build_prompt(candidate, index)
@@ -162,6 +164,7 @@ async def run_triage(
             model=TRIAGE_MODEL, prompt=prompt, response_schema=TriageResponse, user_id=user_id
         )
         if isinstance(result, Err):
+            degraded = True
             continue  # degraded: caller already has this settlement's base exception
 
         requests_issued += 1
@@ -172,7 +175,7 @@ async def run_triage(
         groups.extend(new_groups)
         exceptions.extend(new_exceptions)
 
-    return TriageOutcome(groups, exceptions, used, requests_issued, tokens_used)
+    return TriageOutcome(groups, exceptions, used, requests_issued, tokens_used, degraded)
 
 
 __all__ = [

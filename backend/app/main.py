@@ -3,11 +3,12 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.arq_pool import dispose_arq, init_arq
 from app.db import dispose_db, init_db
 from app.errors import register_error_handlers
 from app.logging_config import configure_logging
 from app.redis_client import dispose_redis, init_redis
-from app.routers import auth, health
+from app.routers import auth, health, runs
 from app.settings import get_settings
 
 configure_logging()
@@ -20,14 +21,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         init_db(app, settings.database_url)
     if settings.redis_url:
         init_redis(app, settings.redis_url)
+        await init_arq(app, settings.redis_url)
     yield
     if settings.database_url:
         await dispose_db(app)
     if settings.redis_url:
         await dispose_redis(app)
+        await dispose_arq(app)
 
 
 app = FastAPI(title="Ledgerline API", lifespan=lifespan)
 register_error_handlers(app)
 app.include_router(health.router)
 app.include_router(auth.router)
+app.include_router(runs.router)
