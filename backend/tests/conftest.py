@@ -1,7 +1,31 @@
+import os
+from collections.abc import AsyncIterator
 from datetime import date, datetime
+
+import pytest
+import redis.asyncio as redis
 
 from contracts.models import BankLine, Invoice, Payment, Settlement
 from contracts.money import Paise
+
+REDIS_TEST_URL = os.environ.get("REDIS_URL", "redis://localhost:6379/15")
+
+
+@pytest.fixture
+async def redis_client() -> AsyncIterator[redis.Redis]:
+    client: redis.Redis = redis.from_url(REDIS_TEST_URL)
+    try:
+        await client.ping()
+    except Exception:
+        pytest.skip(
+            f"Redis not reachable at {REDIS_TEST_URL}; start it with `docker compose -f docker/compose.yaml up -d`"
+        )
+    await client.flushdb()
+    try:
+        yield client
+    finally:
+        await client.flushdb()
+        await client.aclose()
 
 
 def make_invoice(id_: str, amount: int, issued: date = date(2024, 1, 1), ref: str | None = None) -> Invoice:
