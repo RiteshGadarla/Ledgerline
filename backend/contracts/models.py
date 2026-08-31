@@ -118,3 +118,19 @@ class RunMetrics(Frozen):
     llm_tokens: int
     llm_degraded: bool
     output_hash: str
+
+
+class ForecastDay(Frozen):
+    date: date
+    recognised: Paise
+    blocked: Paise
+
+
+class CashForecast(Frozen):
+    """A 14-day projection over the corpus's own settlement window (not the
+    calendar "today" -- this is a historical synthetic corpus, not a live
+    ledger), computed once by the worker so the frontend never sums a paise
+    amount itself."""
+
+    days: list[ForecastDay]
+    unrecognised_cash: Paise

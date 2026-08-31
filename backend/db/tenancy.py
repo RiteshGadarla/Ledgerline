@@ -139,6 +139,7 @@ class RunRecord:
     error: str | None
     result_json: str | None
     metrics_json: str | None
+    forecast_json: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -155,6 +156,7 @@ def _to_run_record(run: Run) -> RunRecord:
         error=run.error,
         result_json=run.result_json,
         metrics_json=run.metrics_json,
+        forecast_json=run.forecast_json,
         created_at=run.created_at,
         updated_at=run.updated_at,
     )
@@ -225,16 +227,31 @@ async def get_run_for_user(db: AsyncSession, run_id: str, user_id: str) -> RunRe
     return _to_run_record(run) if run is not None else None
 
 
+async def list_runs_for_user(db: AsyncSession, user_id: str, limit: int = 50) -> list[RunRecord]:
+    result = await db.execute(
+        select(Run).where(Run.user_id == user_id).order_by(Run.created_at.desc()).limit(limit)
+    )
+    return [_to_run_record(run) for run in result.scalars()]
+
+
 async def transition_run_state(db: AsyncSession, run_id: str, state: RunState) -> None:
     await db.execute(update(Run).where(Run.id == run_id).values(state=state, updated_at=datetime.now(UTC)))
     await db.commit()
 
 
-async def complete_run(db: AsyncSession, run_id: str, result_json: str, metrics_json: str) -> None:
+async def complete_run(
+    db: AsyncSession, run_id: str, result_json: str, metrics_json: str, forecast_json: str | None = None
+) -> None:
     await db.execute(
         update(Run)
         .where(Run.id == run_id)
-        .values(state="complete", result_json=result_json, metrics_json=metrics_json, updated_at=datetime.now(UTC))
+        .values(
+            state="complete",
+            result_json=result_json,
+            metrics_json=metrics_json,
+            forecast_json=forecast_json,
+            updated_at=datetime.now(UTC),
+        )
     )
     await db.commit()
 

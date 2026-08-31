@@ -16,8 +16,8 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.errors import NotFoundError, ValidationFailedError
 from app.redis_client import get_redis
-from contracts.models import RunMetrics
-from db.tenancy import RunRecord, UserRecord, create_run, get_run_for_user
+from contracts.models import CashForecast, Exception_, MatchGroup, RunMetrics
+from db.tenancy import RunRecord, UserRecord, create_run, get_run_for_user, list_runs_for_user
 from workers.tasks import deserialize_match_result
 
 router = APIRouter(prefix="/runs", tags=["runs"])
@@ -40,18 +40,27 @@ class RunOut(BaseModel):
     state: str
     error: str | None
     metrics: RunMetrics | None
+    forecast: CashForecast | None
     created_at: datetime
     updated_at: datetime
 
 
+class RunResultOut(BaseModel):
+    groups: list[MatchGroup]
+    exceptions: list[Exception_]
+    output_hash: str
+
+
 def _run_out(run: RunRecord) -> RunOut:
     metrics = RunMetrics.model_validate_json(run.metrics_json) if run.metrics_json else None
+    forecast = CashForecast.model_validate_json(run.forecast_json) if run.forecast_json else None
     return RunOut(
         id=run.id,
         source=run.source,
         state=run.state,
         error=run.error,
         metrics=metrics,
+        forecast=forecast,
         created_at=run.created_at,
         updated_at=run.updated_at,
     )
@@ -93,12 +102,31 @@ async def create_run_endpoint(
     return _run_out(run)
 
 
+@router.get("", response_model=list[RunOut])
+async def list_runs_endpoint(
+    user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> list[RunOut]:
+    runs = await list_runs_for_user(db, user.id)
+    return [_run_out(run) for run in runs]
+
+
 @router.get("/{run_id}", response_model=RunOut)
 async def get_run_endpoint(
     run_id: str, user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> RunOut:
     run = await _get_owned_run_or_404(db, run_id, user.id)
     return _run_out(run)
+
+
+@router.get("/{run_id}/result", response_model=RunResultOut)
+async def get_run_result_endpoint(
+    run_id: str, user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> RunResultOut:
+    run = await _get_owned_run_or_404(db, run_id, user.id)
+    if run.result_json is None:
+        raise NotFoundError(f"run {run_id!r} has no result yet")
+    result = deserialize_match_result(run.result_json)
+    return RunResultOut(groups=result.groups, exceptions=result.exceptions, output_hash=result.output_hash)
 
 
 def _sse_event(payload: dict[str, object]) -> bytes:

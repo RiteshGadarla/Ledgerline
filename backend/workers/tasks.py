@@ -7,6 +7,7 @@ from datagen.generator import generate_corpus
 from db.tenancy import RunState as DbRunState
 from db.tenancy import complete_run, fail_run, get_run_for_user, transition_run_state
 from engine.pipeline import MatchResult
+from workers.forecast import build_forecast
 from workers.pipeline import RunState, run_pipeline
 
 logger = logging.getLogger("ledgerline.worker")
@@ -81,6 +82,7 @@ async def run_reconciliation(ctx: dict[str, Any], run_id: str, user_id: str) -> 
 
     result_json = serialize_match_result(outcome.result)
     metrics_json = outcome.metrics.model_dump_json()
+    forecast_json = build_forecast(corpus, outcome.result).model_dump_json()
     async with session_factory() as db:
-        await complete_run(db, run_id, result_json, metrics_json)
+        await complete_run(db, run_id, result_json, metrics_json, forecast_json)
     await redis_client.publish(f"run:{run_id}", json.dumps({"state": "complete"}))

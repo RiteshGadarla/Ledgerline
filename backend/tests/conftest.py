@@ -94,6 +94,7 @@ def auth_client(db_engine: AsyncEngine, db_session_factory, redis_client: redis.
         # and app_redis's connections belong to it -- closing cleanly isn't
         # possible from here, so just drop the reference rather than raise
         # out of teardown for an already-finished test.
+        app.dependency_overrides.clear()
         with contextlib.suppress(RuntimeError):
             asyncio.run(app_redis.aclose())
 
@@ -125,6 +126,7 @@ def runs_client(db_engine: AsyncEngine, db_session_factory, redis_client: redis.
         import asyncio
         import contextlib
 
+        app.dependency_overrides.clear()
         with contextlib.suppress(RuntimeError):
             asyncio.run(app_redis.aclose())
         with contextlib.suppress(RuntimeError):

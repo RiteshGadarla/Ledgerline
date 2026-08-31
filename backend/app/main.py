@@ -8,7 +8,7 @@ from app.db import dispose_db, init_db
 from app.errors import register_error_handlers
 from app.logging_config import configure_logging
 from app.redis_client import dispose_redis, init_redis
-from app.routers import auth, health, runs
+from app.routers import auth, data, health, runs
 from app.settings import get_settings
 
 configure_logging()
@@ -35,3 +35,4 @@ register_error_handlers(app)
 app.include_router(health.router)
 app.include_router(auth.router)
 app.include_router(runs.router)
+app.include_router(data.router)

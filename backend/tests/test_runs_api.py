@@ -119,3 +119,89 @@ async def test_stream_replays_terminal_state_immediately_without_a_worker(
         assert payload["state"] == "complete"
 
     assert user_id  # sanity: registration succeeded
+
+
+def test_list_runs_returns_only_the_caller_s_runs_most_recent_first(runs_client: TestClient) -> None:
+    _register(runs_client, "karl")
+    first_id = runs_client.post("/runs", json={"source": "demo", "seed": 1}).json()["id"]
+    second_id = runs_client.post("/runs", json={"source": "demo", "seed": 2}).json()["id"]
+    runs_client.post("/auth/logout")
+
+    _register(runs_client, "liam")
+    runs_client.post("/runs", json={"source": "demo", "seed": 3})
+    other_user_runs = runs_client.get("/runs").json()
+    assert len(other_user_runs) == 1
+
+    runs_client.post("/auth/logout")
+    runs_client.post("/auth/login", json={"username": "karl", "password": "x"})
+    karl_runs = runs_client.get("/runs").json()
+    assert [r["id"] for r in karl_runs] == [second_id, first_id]
+
+
+async def test_get_run_result_returns_groups_and_exceptions(
+    runs_client: TestClient, db_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    _register(runs_client, "mia")
+    run_id = runs_client.post("/runs", json={"source": "demo"}).json()["id"]
+
+    result_json = json.dumps(
+        {
+            "groups": [],
+            "exceptions": [
+                {
+                    "id": "EXC-1",
+                    "code": "MISSING_IN_BANK",
+                    "severity": 1,
+                    "amount_at_risk": 5000,
+                    "records": [{"kind": "settlement", "id": "STL1"}],
+                    "attempted": ["P1"],
+                }
+            ],
+            "output_hash": "deadbeef",
+        }
+    )
+    metrics_json = json.dumps(
+        {
+            "auto_rate": 0.0,
+            "assist_rate": 0.0,
+            "open_rate": 1.0,
+            "records": 1,
+            "throughput_rps": 0.0,
+            "p50_ms": 0,
+            "p95_ms": 0,
+            "llm_requests": 0,
+            "llm_tokens": 0,
+            "llm_degraded": False,
+            "output_hash": "deadbeef",
+        }
+    )
+    async with db_session_factory() as db:
+        await complete_run(db, run_id, result_json, metrics_json)
+
+    response = runs_client.get(f"/runs/{run_id}/result")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["output_hash"] == "deadbeef"
+    assert len(body["exceptions"]) == 1
+    assert body["exceptions"][0]["code"] == "MISSING_IN_BANK"
+
+
+def test_get_run_result_before_completion_is_404(runs_client: TestClient) -> None:
+    _register(runs_client, "noah")
+    run_id = runs_client.post("/runs", json={"source": "demo"}).json()["id"]
+
+    response = runs_client.get(f"/runs/{run_id}/result")
+
+    assert response.status_code == 404
+
+
+def test_get_run_result_across_users_is_404_not_403(runs_client: TestClient) -> None:
+    _register(runs_client, "olivia")
+    run_id = runs_client.post("/runs", json={"source": "demo"}).json()["id"]
+    runs_client.post("/auth/logout")
+
+    _register(runs_client, "paul")
+    response = runs_client.get(f"/runs/{run_id}/result")
+
+    assert response.status_code == 404
