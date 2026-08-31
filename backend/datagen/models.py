@@ -1,17 +1,8 @@
 from dataclasses import dataclass, field
 
-from contracts.models import BankLine, Invoice, Payment, Settlement
 from datagen.difficulty import DifficultyClass
 
 UNMATCHABLE = "unmatchable"
-
-
-@dataclass(frozen=True)
-class Corpus:
-    invoices: list[Invoice]
-    payments: list[Payment]
-    settlements: list[Settlement]
-    bank_lines: list[BankLine]
 
 
 @dataclass(frozen=True)

@@ -3,7 +3,8 @@ import json
 from dataclasses import asdict
 from pathlib import Path
 
-from datagen.models import Corpus, Truth
+from contracts.corpus import Corpus
+from datagen.models import Truth
 
 _FILENAMES = {
     "invoices": "invoices.csv",

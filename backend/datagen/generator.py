@@ -3,10 +3,11 @@ import string
 from dataclasses import dataclass
 from datetime import date, datetime, time
 
+from contracts.corpus import Corpus
 from contracts.models import BankLine, Invoice, Payment, Settlement
 from contracts.money import Paise
 from datagen.difficulty import DifficultyClass
-from datagen.models import UNMATCHABLE, Corpus, Truth, TruthGroup
+from datagen.models import UNMATCHABLE, Truth, TruthGroup
 from money.business_days import add_business_days
 
 _ANCHOR_DATE = date(2024, 1, 8)  # a fixed Monday; generation never touches the real clock
