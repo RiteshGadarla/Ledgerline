@@ -49,8 +49,9 @@ function DataSurface() {
       <section>
         <h1 className="text-lg font-semibold">Data</h1>
         <p className="mt-1 text-sm text-muted">
-          Generate a synthetic corpus, or upload your own ledger, gateway, settlement, and bank files. Either way it
-          becomes a reusable dataset you can close the books against from the Run page.
+          How would you like to create a dataset -- generate a synthetic one, or upload your own ledger, gateway,
+          settlement, and bank files? Either way it becomes a reusable dataset you can close the books against from
+          the Run page.
         </p>
 
         {creating === null ? (
@@ -60,14 +61,14 @@ function DataSurface() {
               onClick={() => setCreating("generate")}
               className="border border-foreground bg-foreground px-4 py-2 text-sm font-medium text-background"
             >
-              Generate a dataset
+              Generate a synthetic dataset
             </button>
             <button
               type="button"
               onClick={() => setCreating("upload")}
               className="border border-hairline px-4 py-2 text-sm font-medium"
             >
-              Upload your own files
+              Upload my own files
             </button>
           </div>
         ) : creating === "generate" ? (
@@ -80,10 +81,10 @@ function DataSurface() {
             onCancel={() => setCreating(null)}
           />
         ) : (
-          <CreateUploadedForm
-            onDone={async (dataset) => {
+          <UploadDatasetForm
+            onDone={async (datasetId) => {
               await refreshDatasets();
-              setSelectedId(dataset.id);
+              setSelectedId(datasetId);
               setCreating(null);
             }}
             onCancel={() => setCreating(null)}
@@ -229,32 +230,85 @@ function GenerateForm({
   );
 }
 
-function CreateUploadedForm({
+type RoleUploadOutcome = { ok: true; valid_count: number; total_rows: number } | { ok: false; error: string };
+
+function RoleUploadResult({ outcome }: { outcome: RoleUploadOutcome }) {
+  return outcome.ok ? (
+    <span className="text-xs text-muted">
+      {outcome.valid_count}/{outcome.total_rows} rows saved
+    </span>
+  ) : (
+    <span className="text-xs text-signal">{outcome.error}</span>
+  );
+}
+
+function UploadDatasetForm({
   onDone,
   onCancel,
 }: {
-  onDone: (dataset: DatasetOut) => void;
+  onDone: (datasetId: string) => void;
   onCancel: () => void;
 }) {
   const [name, setName] = useState("");
+  const [files, setFiles] = useState<Record<string, File | null>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [results, setResults] = useState<Record<string, RoleUploadOutcome> | null>(null);
+
+  const hasAnyFile = ROLES.some((r) => files[r.value]);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     setBusy(true);
     setError(null);
-    const { data, error: apiError } = await api.POST("/datasets", { body: { name, source: "uploaded" } });
-    setBusy(false);
-    if (!data) {
+    setResults(null);
+
+    const { data: dataset, error: apiError } = await api.POST("/datasets", { body: { name, source: "uploaded" } });
+    if (!dataset) {
+      setBusy(false);
       setError(apiError && typeof apiError.detail === "string" ? apiError.detail : "Could not create a dataset.");
       return;
     }
-    onDone(data);
+
+    const outcomes: Record<string, RoleUploadOutcome> = {};
+    for (const { value: role } of ROLES) {
+      const file = files[role];
+      if (!file) continue;
+
+      const previewForm = new FormData();
+      previewForm.set("role", role);
+      previewForm.set("file", file);
+      const { data: preview, error: previewError } = await postForm<PreviewOut>("/data/preview", previewForm);
+      if (!preview) {
+        outcomes[role] = { ok: false, error: previewError?.detail ?? "Could not read that file." };
+        continue;
+      }
+
+      const mapping = preview.mapping.map((m) => ({
+        source_header: m.source_header,
+        canonical_field: m.canonical_field,
+        confidence: m.confidence,
+      }));
+      const saveForm = new FormData();
+      saveForm.set("role", role);
+      saveForm.set("mapping", JSON.stringify(mapping));
+      saveForm.set("file", file);
+      const { data: saved, error: saveError } = await postForm<{ valid_count: number; total_rows: number }>(
+        `/datasets/${dataset.id}/files`,
+        saveForm
+      );
+      outcomes[role] = saved
+        ? { ok: true, valid_count: saved.valid_count, total_rows: saved.total_rows }
+        : { ok: false, error: saveError?.detail ?? "Could not save that file." };
+    }
+
+    setResults(outcomes);
+    setBusy(false);
+    onDone(dataset.id);
   }
 
   return (
-    <form onSubmit={submit} className="mt-6 flex flex-wrap items-end gap-4 border border-hairline p-4">
+    <form onSubmit={submit} className="mt-6 flex flex-col gap-4 border border-hairline p-4">
       <label className="flex flex-col gap-1 text-sm">
         Name
         <input
@@ -264,19 +318,37 @@ function CreateUploadedForm({
           onChange={(e) => setName(e.target.value)}
         />
       </label>
-      <button
-        type="submit"
-        disabled={busy || !name}
-        className="border border-foreground bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-50"
-      >
-        {busy ? "Creating…" : "Create dataset"}
-      </button>
-      <button type="button" onClick={onCancel} className="border border-hairline px-4 py-2 text-sm">
-        Cancel
-      </button>
-      {error && <p role="alert" className="w-full text-sm text-signal">{error}</p>}
-      <p className="w-full text-xs text-muted">
-        You&apos;ll add each of the four files (ledger, gateway, settlement, bank) next.
+
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        {ROLES.map(({ value, label }) => (
+          <label key={value} className="flex flex-col gap-1 text-sm">
+            {label}
+            <input
+              type="file"
+              accept=".csv,.xlsx,.pdf"
+              onChange={(e) => setFiles((prev) => ({ ...prev, [value]: e.target.files?.[0] ?? null }))}
+              className="text-sm"
+            />
+            {results?.[value] && <RoleUploadResult outcome={results[value]} />}
+          </label>
+        ))}
+      </div>
+
+      <div className="flex gap-3">
+        <button
+          type="submit"
+          disabled={busy || !name || !hasAnyFile}
+          className="border border-foreground bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-50"
+        >
+          {busy ? "Uploading…" : "Upload dataset"}
+        </button>
+        <button type="button" onClick={onCancel} className="border border-hairline px-4 py-2 text-sm">
+          Cancel
+        </button>
+      </div>
+      {error && <p role="alert" className="text-sm text-signal">{error}</p>}
+      <p className="text-xs text-muted">
+        You can add or replace any of these files later from the dataset&apos;s own page.
       </p>
     </form>
   );

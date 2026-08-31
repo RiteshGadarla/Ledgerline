@@ -13,9 +13,6 @@ type DatasetOut = components["schemas"]["DatasetOut"];
 function RunSurface() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [source, setSource] = useState<"demo" | "dataset">("demo");
-  const [seed, setSeed] = useState("1001");
-  const [size, setSize] = useState("150");
   const [datasets, setDatasets] = useState<DatasetOut[] | null>(null);
   const [datasetId, setDatasetId] = useState<string>("");
   const [submitting, setSubmitting] = useState(false);
@@ -29,7 +26,6 @@ function RunSurface() {
       setDatasets(ready);
       const requested = searchParams.get("dataset");
       if (requested && ready.some((d) => d.id === requested)) {
-        setSource("dataset");
         setDatasetId(requested);
       } else if (ready.length > 0) {
         setDatasetId(ready[0].id);
@@ -42,18 +38,12 @@ function RunSurface() {
 
   async function closeTheBooks(event: React.FormEvent) {
     event.preventDefault();
+    if (!datasetId) return;
     setSubmitting(true);
     setError(null);
 
     const { data, error: apiError } = await api.POST("/runs", {
-      body:
-        source === "demo"
-          ? {
-              source: "demo",
-              seed: seed ? Number(seed) : undefined,
-              size: size ? Number(size) : undefined,
-            }
-          : { source: "dataset", dataset_id: datasetId },
+      body: { source: "dataset", dataset_id: datasetId },
     });
 
     setSubmitting(false);
@@ -68,57 +58,22 @@ function RunSurface() {
     <div className="flex flex-col gap-10">
       <section>
         <h1 className="text-lg font-semibold">Run</h1>
-        <p className="mt-1 text-sm text-muted">
-          Close the books on a synthetic demo corpus, or on one of your own datasets from the Data page.
-        </p>
+        <p className="mt-1 text-sm text-muted">Choose one of your datasets and close the books against it.</p>
 
-        <div className="mt-6 flex gap-3">
-          <button
-            type="button"
-            onClick={() => setSource("demo")}
-            className={"border px-3 py-1.5 text-sm " + (source === "demo" ? "border-foreground font-medium" : "border-hairline text-muted")}
-          >
-            Demo corpus
-          </button>
-          <button
-            type="button"
-            onClick={() => setSource("dataset")}
-            className={"border px-3 py-1.5 text-sm " + (source === "dataset" ? "border-foreground font-medium" : "border-hairline text-muted")}
-          >
-            My dataset
-          </button>
-        </div>
-
-        <form onSubmit={closeTheBooks} className="mt-4 flex flex-wrap items-end gap-4">
-          {source === "demo" ? (
-            <>
-              <label className="flex flex-col gap-1 text-sm">
-                Seed
-                <input
-                  className="w-32 border border-hairline px-3 py-2 font-mono text-sm tabular"
-                  inputMode="numeric"
-                  value={seed}
-                  onChange={(e) => setSeed(e.target.value)}
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-sm">
-                Size
-                <input
-                  className="w-32 border border-hairline px-3 py-2 font-mono text-sm tabular"
-                  inputMode="numeric"
-                  value={size}
-                  onChange={(e) => setSize(e.target.value)}
-                />
-              </label>
-            </>
-          ) : datasets === null ? (
-            <p className="text-sm text-muted">Loading your datasets…</p>
-          ) : datasets.length === 0 ? (
-            <p className="text-sm text-muted">
-              You don&apos;t have a ready dataset yet -- head to <a href="/data" className="underline">Data</a> to
-              generate or upload one.
-            </p>
-          ) : (
+        {datasets === null ? (
+          <p className="mt-6 text-sm text-muted">Loading your datasets…</p>
+        ) : datasets.length === 0 ? (
+          <div className="mt-6 border border-hairline p-4">
+            <p className="text-sm text-muted">You don&apos;t have a ready dataset yet.</p>
+            <a
+              href="/data"
+              className="mt-3 inline-block border border-foreground bg-foreground px-4 py-2 text-sm font-medium text-background"
+            >
+              Go create one
+            </a>
+          </div>
+        ) : (
+          <form onSubmit={closeTheBooks} className="mt-6 flex flex-wrap items-end gap-4">
             <label className="flex flex-col gap-1 text-sm">
               Dataset
               <select
@@ -133,15 +88,15 @@ function RunSurface() {
                 ))}
               </select>
             </label>
-          )}
-          <button
-            type="submit"
-            disabled={submitting || (source === "dataset" && !datasetId)}
-            className="border border-foreground bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-50"
-          >
-            {submitting ? "Starting…" : "Close the books"}
-          </button>
-        </form>
+            <button
+              type="submit"
+              disabled={submitting || !datasetId}
+              className="border border-foreground bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-50"
+            >
+              {submitting ? "Starting…" : "Close the books"}
+            </button>
+          </form>
+        )}
         {error && (
           <p role="alert" className="mt-2 text-sm text-signal">
             {error}
