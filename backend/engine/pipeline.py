@@ -4,69 +4,49 @@ from dataclasses import dataclass
 
 from contracts.corpus import Corpus
 from contracts.enums import ExceptionCode, PassId
-from contracts.models import MatchGroup
-from contracts.money import Paise
+from contracts.models import Exception_, MatchGroup
+from engine.exceptions import build_exception
 from engine.index import build_index
-from engine.passes import CONFIDENCE, p1_bank_line_to_settlement, p2_verify_batch_algebra, p3_invoice_to_payment
-
-
-@dataclass(frozen=True)
-class ResidueItem:
-    kind: str
-    id: str
-    code: ExceptionCode
-    note: str
+from engine.passes import CONFIDENCE, p1_bank_line_to_settlement, p3_invoice_to_payment
+from engine.verifier import MatchProposal, UsedRecordIds, verify
+from money.result import Ok
 
 
 @dataclass(frozen=True)
 class MatchResult:
     groups: list[MatchGroup]
-    residue: list[ResidueItem]
+    exceptions: list[Exception_]
     output_hash: str
 
 
 def match(corpus: Corpus) -> MatchResult:
-    """Run P1-P3 over the corpus and assemble verified MatchGroups.
+    """Run P1-P3 to build proposals, verify every one, and typed-except everything else.
 
-    Anything that cannot be tied out exactly becomes a residue item rather
-    than a lower-confidence match: a false match costs more than an open item.
+    verify() is the only path that creates a MatchGroup: a false match costs
+    more than an open item, so anything that cannot be tied out exactly
+    becomes an exception instead of a lower-confidence guess.
     """
     index = build_index(corpus)
     p1 = p1_bank_line_to_settlement(index)
     bank_line_by_settlement = {settlement_id: bank_line_id for settlement_id, bank_line_id, _ in p1.matched}
     p1_evidence_by_settlement = {settlement_id: evidence for settlement_id, _, evidence in p1.matched}
 
-    residue: list[ResidueItem] = []
-    for settlement_id, candidates, code in p1.ambiguous:
-        residue.append(ResidueItem("settlement", settlement_id, code, f"tied bank lines: {candidates}"))
+    exceptions: list[Exception_] = []
+    for settlement_id, _candidates, code in p1.ambiguous:
+        exceptions.append(build_exception("settlement", settlement_id, code, index, attempted=["P1"]))
     for settlement_id in p1.unmatched:
-        residue.append(
-            ResidueItem(
-                "settlement", settlement_id, ExceptionCode.MISSING_IN_BANK, "no bank credit found for UTR/amount"
-            )
+        exceptions.append(
+            build_exception("settlement", settlement_id, ExceptionCode.MISSING_IN_BANK, index, attempted=["P1"])
         )
 
     groups: list[MatchGroup] = []
+    used = UsedRecordIds()
     resolved_invoice_ids: set[str] = set()
-    resolved_payment_ids: set[str] = set()
-    resolved_bank_line_ids: set[str] = set()
 
     for settlement in index.settlements_by_id.values():
         bank_line_id = bank_line_by_settlement.get(settlement.id)
         if bank_line_id is None:
-            continue
-
-        ties_out, batch_residual = p2_verify_batch_algebra(index, settlement.id)
-        if not ties_out:
-            residue.append(
-                ResidueItem(
-                    "settlement",
-                    settlement.id,
-                    ExceptionCode.AMT_MISMATCH_UNEXPLAINED,
-                    f"batch algebra residual {batch_residual} paise",
-                )
-            )
-            continue
+            continue  # already exceptioned above
 
         invoice_ids: list[str] = []
         pass_used = PassId.P2
@@ -77,47 +57,52 @@ def match(corpus: Corpus) -> MatchResult:
             invoice_id, pass_id, _ = result
             if invoice_id not in invoice_ids:
                 invoice_ids.append(invoice_id)
-            resolved_invoice_ids.add(invoice_id)
             if CONFIDENCE[pass_id] < CONFIDENCE[pass_used]:
                 pass_used = pass_id
 
-        group = MatchGroup(
-            id=settlement.id,
+        proposal = MatchProposal(
             invoice_ids=invoice_ids,
             payment_ids=list(settlement.payment_ids),
             settlement_id=settlement.id,
             bank_line_id=bank_line_id,
-            status="auto",
             pass_id=pass_used,
             confidence=CONFIDENCE[pass_used],
-            residual=Paise(0),
             evidence=p1_evidence_by_settlement.get(settlement.id, []),
         )
-        groups.append(group)
-        resolved_bank_line_ids.add(bank_line_id)
-        resolved_payment_ids.update(settlement.payment_ids)
+        outcome = verify(proposal, index, used)
+        if isinstance(outcome, Ok):
+            group = outcome.value
+            groups.append(group)
+            used = used.with_group(group)
+            resolved_invoice_ids.update(group.invoice_ids)
+        else:
+            exceptions.append(
+                build_exception(
+                    "settlement",
+                    settlement.id,
+                    ExceptionCode.AMT_MISMATCH_UNEXPLAINED,
+                    index,
+                    attempted=["P1", "P2", "P3"],
+                )
+            )
 
     for invoice_id in index.invoices_by_id:
         if invoice_id not in resolved_invoice_ids:
-            residue.append(
-                ResidueItem(
-                    "invoice", invoice_id, ExceptionCode.MISSING_IN_BANK, "no settled payment resolved to this invoice"
-                )
+            exceptions.append(
+                build_exception("invoice", invoice_id, ExceptionCode.MISSING_IN_BANK, index, attempted=["P3"])
             )
     for payment_id in index.payments_by_id:
-        if payment_id not in resolved_payment_ids:
-            residue.append(
-                ResidueItem(
-                    "payment", payment_id, ExceptionCode.MISSING_IN_LEDGER, "not part of any verified settlement batch"
-                )
+        if payment_id not in used.payment_ids:
+            exceptions.append(
+                build_exception("payment", payment_id, ExceptionCode.MISSING_IN_LEDGER, index, attempted=["P2"])
             )
     for bank_line_id in index.bank_lines_by_id:
-        if bank_line_id not in resolved_bank_line_ids:
-            residue.append(
-                ResidueItem("bank_line", bank_line_id, ExceptionCode.UNIDENTIFIED_CREDIT, "no settlement tie found")
+        if bank_line_id not in used.bank_line_ids:
+            exceptions.append(
+                build_exception("bank_line", bank_line_id, ExceptionCode.UNIDENTIFIED_CREDIT, index, attempted=["P1"])
             )
 
-    return MatchResult(groups=groups, residue=residue, output_hash=_hash_groups(groups))
+    return MatchResult(groups=groups, exceptions=exceptions, output_hash=_hash_groups(groups))
 
 
 def _hash_groups(groups: list[MatchGroup]) -> str:

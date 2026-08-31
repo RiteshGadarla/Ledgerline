@@ -51,8 +51,9 @@ def test_total_accounting_every_record_matched_or_residue() -> None:
             matched_bank_line_ids.add(group.bank_line_id)
 
     residue_by_kind: dict[str, set[str]] = {"invoice": set(), "payment": set(), "settlement": set(), "bank_line": set()}
-    for item in result.residue:
-        residue_by_kind[item.kind].add(item.id)
+    for exception in result.exceptions:
+        for record in exception.records:
+            residue_by_kind[record.kind].add(record.id)
 
     all_invoice_ids = {i.id for i in corpus.invoices}
     all_payment_ids = {p.id for p in corpus.payments}
