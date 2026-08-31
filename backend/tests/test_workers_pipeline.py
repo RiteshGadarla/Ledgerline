@@ -15,8 +15,8 @@ from workers.pipeline import run_pipeline
 def _gateway(redis_client: redis.Redis, client: FakeClient) -> LlmGateway:
     governor = Governor(
         redis_client=redis_client,
-        rpm_limits={"gemini-2.5-flash": 1000, "gemini-2.5-flash-lite": 1000},
-        rpd_limits={"gemini-2.5-flash": 1000, "gemini-2.5-flash-lite": 1000},
+        rpm_limits={"gemini-3.6-flash": 1000, "gemini-3.5-flash-lite": 1000},
+        rpd_limits={"gemini-3.6-flash": 1000, "gemini-3.5-flash-lite": 1000},
         user_daily_quota=1000,
     )
     return LlmGateway(client=client, governor=governor, cache=ResponseCache(redis_client), schema_version="run-v1")

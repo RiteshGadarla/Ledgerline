@@ -4,7 +4,7 @@ from llm.gateway import LlmGateway
 from llm.schemas import EXPLAIN_SCHEMA_VERSION, ExplanationResponse, cap_explanation
 from money.result import Err, Result
 
-EXPLAIN_MODEL = "gemini-2.5-flash-lite"
+EXPLAIN_MODEL = "gemini-3.5-flash-lite"
 
 
 def build_prompt(exceptions: list[Exception_]) -> str:

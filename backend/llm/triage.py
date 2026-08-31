@@ -11,7 +11,7 @@ from llm.gateway import LlmGateway
 from llm.schemas import TRIAGE_SCHEMA_VERSION, LlmMatchProposal, TriageResponse
 from money.result import Err, Ok, Result
 
-TRIAGE_MODEL = "gemini-2.5-flash"
+TRIAGE_MODEL = "gemini-3.6-flash"
 
 
 @dataclass(frozen=True)

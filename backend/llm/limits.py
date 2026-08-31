@@ -21,12 +21,12 @@ def load_model_limits() -> dict[str, ModelLimits]:
     the current numbers against Google's rate-limits page before deploy.
     """
     return {
-        "gemini-2.5-flash": ModelLimits(
+        "gemini-3.6-flash": ModelLimits(
             rpm=_int_env("GEMINI_FLASH_RPM", 10),
             rpd=_int_env("GEMINI_FLASH_RPD", 250),
             tpm=_int_env("GEMINI_FLASH_TPM", 250_000),
         ),
-        "gemini-2.5-flash-lite": ModelLimits(
+        "gemini-3.5-flash-lite": ModelLimits(
             rpm=_int_env("GEMINI_FLASH_LITE_RPM", 15),
             rpd=_int_env("GEMINI_FLASH_LITE_RPD", 1_000),
             tpm=_int_env("GEMINI_FLASH_LITE_TPM", 250_000),

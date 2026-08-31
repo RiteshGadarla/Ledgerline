@@ -2,11 +2,10 @@ import json
 import logging
 from typing import Any, cast
 
-from contracts.models import Exception_, MatchGroup
 from datagen.generator import generate_corpus
 from db.tenancy import RunState as DbRunState
 from db.tenancy import complete_run, fail_run, get_run_for_user, transition_run_state
-from engine.pipeline import MatchResult
+from engine.pipeline import serialize_match_result
 from workers.forecast import build_forecast
 from workers.pipeline import RunState, run_pipeline
 
@@ -14,25 +13,6 @@ logger = logging.getLogger("ledgerline.worker")
 
 DEFAULT_DEMO_SEED = 1001
 DEFAULT_DEMO_SIZE = 150
-
-
-def serialize_match_result(result: MatchResult) -> str:
-    return json.dumps(
-        {
-            "groups": [g.model_dump(mode="json") for g in result.groups],
-            "exceptions": [e.model_dump(mode="json") for e in result.exceptions],
-            "output_hash": result.output_hash,
-        }
-    )
-
-
-def deserialize_match_result(raw: str) -> MatchResult:
-    payload: dict[str, Any] = json.loads(raw)
-    return MatchResult(
-        groups=[MatchGroup.model_validate(g) for g in payload["groups"]],
-        exceptions=[Exception_.model_validate(e) for e in payload["exceptions"]],
-        output_hash=payload["output_hash"],
-    )
 
 
 async def run_reconciliation(ctx: dict[str, Any], run_id: str, user_id: str) -> None:

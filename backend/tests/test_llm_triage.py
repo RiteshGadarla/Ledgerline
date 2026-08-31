@@ -19,8 +19,8 @@ from tests.conftest import make_bank_line, make_payment, make_settlement
 def _gateway(redis_client: redis.Redis, client: FakeClient) -> LlmGateway:
     governor = Governor(
         redis_client=redis_client,
-        rpm_limits={"gemini-2.5-flash": 1000},
-        rpd_limits={"gemini-2.5-flash": 1000},
+        rpm_limits={"gemini-3.6-flash": 1000},
+        rpd_limits={"gemini-3.6-flash": 1000},
         user_daily_quota=1000,
     )
     return LlmGateway(client=client, governor=governor, cache=ResponseCache(redis_client), schema_version="triage-v1")

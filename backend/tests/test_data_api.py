@@ -16,8 +16,8 @@ def _override_gateway(client: TestClient, fixtures: dict[str, str]) -> None:
         redis_client = app.state.redis_client
         governor = Governor(
             redis_client=redis_client,
-            rpm_limits={"gemini-2.5-flash-lite": 1000},
-            rpd_limits={"gemini-2.5-flash-lite": 1000},
+            rpm_limits={"gemini-3.5-flash-lite": 1000},
+            rpd_limits={"gemini-3.5-flash-lite": 1000},
             user_daily_quota=1000,
         )
         return LlmGateway(

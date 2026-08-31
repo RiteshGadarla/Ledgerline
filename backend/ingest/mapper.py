@@ -9,7 +9,7 @@ from ingest.tabular import ParsedTable
 from llm.gateway import LlmGateway
 from money.result import Err, Ok, Result
 
-MAPPER_MODEL = "gemini-2.5-flash-lite"
+MAPPER_MODEL = "gemini-3.5-flash-lite"
 MAPPER_SCHEMA_VERSION = "mapper-v1"
 SAMPLE_ROW_COUNT = 5
 

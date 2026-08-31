@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { AskPanel } from "@/components/AskPanel";
 import { StatusBadge } from "@/components/StatusBadge";
 
 type StreamEvent = { state: string; error?: string | null };
@@ -82,6 +83,8 @@ export function RunShell({ runId, children }: { runId: string; children: React.R
       </nav>
 
       {children}
+
+      {latest?.state === "complete" && <AskPanel runId={runId} />}
     </div>
   );
 }

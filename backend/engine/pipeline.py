@@ -1,6 +1,7 @@
 import hashlib
 import json
 from dataclasses import dataclass
+from typing import Any
 
 from contracts.corpus import Corpus
 from contracts.enums import ExceptionCode, PassId
@@ -122,3 +123,27 @@ def hash_groups(groups: list[MatchGroup]) -> str:
     )
     payload = json.dumps(canonical, sort_keys=True, default=str).encode()
     return hashlib.sha256(payload).hexdigest()
+
+
+def serialize_match_result(result: MatchResult) -> str:
+    """The persisted-run-row shape: how a MatchResult round-trips through
+    Run.result_json. Lives here (not in workers/) so any consumer -- the
+    worker that writes it, the ask agent's tools that read it back -- can
+    import it without workers depending on llm or vice versa.
+    """
+    return json.dumps(
+        {
+            "groups": [g.model_dump(mode="json") for g in result.groups],
+            "exceptions": [e.model_dump(mode="json") for e in result.exceptions],
+            "output_hash": result.output_hash,
+        }
+    )
+
+
+def deserialize_match_result(raw: str) -> MatchResult:
+    payload: dict[str, Any] = json.loads(raw)
+    return MatchResult(
+        groups=[MatchGroup.model_validate(g) for g in payload["groups"]],
+        exceptions=[Exception_.model_validate(e) for e in payload["exceptions"]],
+        output_hash=payload["output_hash"],
+    )

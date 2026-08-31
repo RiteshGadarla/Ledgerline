@@ -257,10 +257,41 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ask": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Ask Endpoint */
+        post: operations["ask_endpoint_ask_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** AskRequest */
+        AskRequest: {
+            /** Run Id */
+            run_id: string;
+            /** Question */
+            question: string;
+        };
+        /** AskResponseOut */
+        AskResponseOut: {
+            /** Answer */
+            answer: string;
+            /** Degraded */
+            degraded: boolean;
+        };
         /** Body_preview_endpoint_data_preview_post */
         Body_preview_endpoint_data_preview_post: {
             /** Role */
@@ -1028,6 +1059,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ValidateOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ask_endpoint_ask_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AskRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AskResponseOut"];
                 };
             };
             /** @description Validation Error */

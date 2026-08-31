@@ -20,8 +20,8 @@ def _gateway(
 ) -> LlmGateway:
     governor = Governor(
         redis_client=redis_client,
-        rpm_limits={"gemini-2.5-flash": rpm},
-        rpd_limits={"gemini-2.5-flash": rpd},
+        rpm_limits={"gemini-3.6-flash": rpm},
+        rpd_limits={"gemini-3.6-flash": rpd},
         user_daily_quota=quota,
     )
     return LlmGateway(client=client, governor=governor, cache=ResponseCache(redis_client), schema_version="1")
@@ -33,10 +33,10 @@ async def test_identical_request_twice_issues_one_upstream_call(redis_client: re
     gateway = _gateway(redis_client, client)
 
     first = await gateway.generate(
-        model="gemini-2.5-flash", prompt="match these", response_schema=Proposal, user_id="u1"
+        model="gemini-3.6-flash", prompt="match these", response_schema=Proposal, user_id="u1"
     )
     second = await gateway.generate(
-        model="gemini-2.5-flash", prompt="match these", response_schema=Proposal, user_id="u1"
+        model="gemini-3.6-flash", prompt="match these", response_schema=Proposal, user_id="u1"
     )
 
     assert isinstance(first, Ok)
@@ -50,7 +50,7 @@ async def test_governor_denial_surfaces_as_err_not_an_exception(redis_client: re
     gateway = _gateway(redis_client, client, quota=0)
 
     result = await gateway.generate(
-        model="gemini-2.5-flash", prompt="match these", response_schema=Proposal, user_id="u1"
+        model="gemini-3.6-flash", prompt="match these", response_schema=Proposal, user_id="u1"
     )
 
     assert isinstance(result, Err)
@@ -72,12 +72,12 @@ async def test_schema_violation_is_rejected_never_partially_applied(redis_client
     gateway = _gateway(redis_client, client)  # type: ignore[arg-type]
 
     result = await gateway.generate(
-        model="gemini-2.5-flash", prompt="bad prompt", response_schema=Proposal, user_id="u1"
+        model="gemini-3.6-flash", prompt="bad prompt", response_schema=Proposal, user_id="u1"
     )
 
     assert isinstance(result, Err)
     assert "schema" in result.reason
-    cached = await ResponseCache(redis_client).get("gemini-2.5-flash", "bad prompt", "1")
+    cached = await ResponseCache(redis_client).get("gemini-3.6-flash", "bad prompt", "1")
     assert cached is None, "a malformed response must never be cached"
 
 
@@ -98,7 +98,7 @@ async def test_429_storm_degrades_to_err_after_retries_exhausted(redis_client: r
     client = _AlwaysTransientClient()
     gateway = _gateway(redis_client, client)  # type: ignore[arg-type]
 
-    result = await gateway.generate(model="gemini-2.5-flash", prompt="anything", response_schema=Proposal, user_id="u1")
+    result = await gateway.generate(model="gemini-3.6-flash", prompt="anything", response_schema=Proposal, user_id="u1")
 
     assert isinstance(result, Err)
     assert client.call_count == 3  # max_attempts in with_backoff

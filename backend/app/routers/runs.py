@@ -28,7 +28,7 @@ from db.tenancy import (
     list_runs_for_user,
     record_exception_decision,
 )
-from workers.tasks import deserialize_match_result
+from engine.pipeline import deserialize_match_result
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
