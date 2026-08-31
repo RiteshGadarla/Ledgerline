@@ -2,9 +2,12 @@ import csv
 import json
 from dataclasses import asdict
 from pathlib import Path
+from typing import Any
 
 from contracts.corpus import Corpus
+from contracts.money import Paise
 from datagen.models import Truth
+from money.parse import format_paise
 
 _FILENAMES = {
     "invoices": "invoices.csv",
@@ -13,14 +16,42 @@ _FILENAMES = {
     "bank_lines": "bank_lines.csv",
 }
 
+# Fields rendered as canonical rupee strings (e.g. "1,234.56") rather than raw
+# paise ints, and datetime fields truncated to their date -- this is what makes
+# the exported CSVs re-ingestable through ingest/: a real bank/ledger export
+# never contains a raw paise integer or a full timestamp for these columns,
+# and money/dates already knows how to parse exactly this shape back.
+_MONEY_FIELDS = {"amount", "gross", "fee", "tax", "net", "payout", "fees", "adjustments", "credit", "debit", "balance"}
+_DATE_ONLY_FIELDS = {"captured_at"}
+
 
 def write_corpus(corpus: Corpus, truth: Truth, output_dir: Path) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
-    _write_csv(output_dir / _FILENAMES["invoices"], [i.model_dump(mode="json") for i in corpus.invoices])
-    _write_csv(output_dir / _FILENAMES["payments"], [p.model_dump(mode="json") for p in corpus.payments])
-    _write_csv(output_dir / _FILENAMES["settlements"], [s.model_dump(mode="json") for s in corpus.settlements])
-    _write_csv(output_dir / _FILENAMES["bank_lines"], [b.model_dump(mode="json") for b in corpus.bank_lines])
+    _write_csv(output_dir / _FILENAMES["invoices"], [_row_for(i.model_dump(mode="json")) for i in corpus.invoices])
+    _write_csv(output_dir / _FILENAMES["payments"], [_row_for(p.model_dump(mode="json")) for p in corpus.payments])
+    _write_csv(
+        output_dir / _FILENAMES["settlements"], [_row_for(s.model_dump(mode="json")) for s in corpus.settlements]
+    )
+    _write_csv(
+        output_dir / _FILENAMES["bank_lines"], [_row_for(b.model_dump(mode="json")) for b in corpus.bank_lines]
+    )
     (output_dir / "truth.json").write_text(json.dumps(truth_to_dict(truth), indent=2, sort_keys=True))
+
+
+def _row_for(fields: dict[str, Any]) -> dict[str, str]:
+    row: dict[str, str] = {}
+    for key, value in fields.items():
+        if key in _MONEY_FIELDS and value is not None:
+            row[key] = format_paise(Paise(value))
+        elif key in _DATE_ONLY_FIELDS and value is not None:
+            row[key] = str(value).split("T", 1)[0]
+        elif value is None:
+            row[key] = ""
+        elif isinstance(value, list):
+            row[key] = ";".join(value)
+        else:
+            row[key] = str(value)
+    return row
 
 
 def truth_to_dict(truth: Truth) -> dict[str, object]:
@@ -31,7 +62,7 @@ def truth_to_dict(truth: Truth) -> dict[str, object]:
     }
 
 
-def _write_csv(path: Path, rows: list[dict[str, object]]) -> None:
+def _write_csv(path: Path, rows: list[dict[str, str]]) -> None:
     if not rows:
         path.write_text("")
         return
