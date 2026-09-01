@@ -1,9 +1,9 @@
 {
-  "auto_rate": 0.8666666666666667,
+  "auto_rate": 0.84,
   "assist_rate": 0.0,
-  "open_rate": 0.13333333333333333,
+  "open_rate": 0.16,
   "precision": 1.0,
-  "recall": 0.9090909090909091,
+  "recall": 0.9,
   "false_matches": 0,
   "by_class": {
     "unmatchable": {
@@ -13,7 +13,7 @@
     },
     "clean": {
       "precision": null,
-      "recall": 0.8714285714285714,
+      "recall": 0.8428571428571429,
       "count": 140
     },
     "duplicate_payment": {
@@ -62,14 +62,14 @@
       "count": 1
     }
   },
-  "records": 322,
-  "open_exceptions": 43,
-  "amount_at_risk": 1829775285,
-  "throughput_rps": 217928.32697936308,
-  "p50_ms": 1,
-  "p95_ms": 1,
+  "records": 320,
+  "open_exceptions": 51,
+  "amount_at_risk": 754745464,
+  "throughput_rps": 625297.9853339458,
+  "p50_ms": 0,
+  "p95_ms": 0,
   "llm_requests": 0,
   "llm_tokens": 0,
   "llm_degraded": false,
-  "output_hash": "6a2d4b53b470b9d0a0090013b988ee00ad93cbfc586741e6535967d53208b26c"
+  "output_hash": "96f04e8bc5e0025c34c15bd8fb3d454ddb76d99c529497b62091aefe12819a04"
 }

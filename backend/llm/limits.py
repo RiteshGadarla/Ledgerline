@@ -1,6 +1,8 @@
 import os
 from dataclasses import dataclass
 
+from llm.models import BACKUP_MODEL, PRIMARY_MODEL
+
 
 @dataclass(frozen=True)
 class ModelLimits:
@@ -15,21 +17,25 @@ def _int_env(name: str, default: int) -> int:
 
 
 def load_model_limits() -> dict[str, ModelLimits]:
-    """Free-tier limits, loaded from env so a quota change is a deploy, not a code change.
+    """Per-model request ceilings, loaded from env so a quota change is a
+    deploy, not a code change.
 
-    Defaults are the worst published figures at the time this was written; verify
-    the current numbers against Google's rate-limits page before deploy.
+    Defaults are deliberately conservative. A free-tier key's real per-day
+    ceiling has been observed far below the vendor's published figure, and
+    the governor is what turns "over quota" into an instant, honest refusal
+    instead of a slow request that fails upstream -- so when in doubt these
+    should be set too low rather than too high.
     """
     return {
-        "gemini-3.6-flash": ModelLimits(
-            rpm=_int_env("GEMINI_FLASH_RPM", 10),
-            rpd=_int_env("GEMINI_FLASH_RPD", 250),
-            tpm=_int_env("GEMINI_FLASH_TPM", 250_000),
+        PRIMARY_MODEL: ModelLimits(
+            rpm=_int_env("GEMMA_PRIMARY_RPM", 10),
+            rpd=_int_env("GEMMA_PRIMARY_RPD", 250),
+            tpm=_int_env("GEMMA_PRIMARY_TPM", 250_000),
         ),
-        "gemini-3.5-flash-lite": ModelLimits(
-            rpm=_int_env("GEMINI_FLASH_LITE_RPM", 15),
-            rpd=_int_env("GEMINI_FLASH_LITE_RPD", 1_000),
-            tpm=_int_env("GEMINI_FLASH_LITE_TPM", 250_000),
+        BACKUP_MODEL: ModelLimits(
+            rpm=_int_env("GEMMA_BACKUP_RPM", 15),
+            rpd=_int_env("GEMMA_BACKUP_RPD", 1_000),
+            tpm=_int_env("GEMMA_BACKUP_TPM", 250_000),
         ),
     }
 

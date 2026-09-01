@@ -10,20 +10,15 @@ const LABELS: Record<string, string> = {
 };
 
 export function StatusBadge({ state }: { state: string }) {
-  const isTerminal = state === "complete" || state === "failed";
   const isFailed = state === "failed";
+  const isComplete = state === "complete";
+  const inFlight = !isFailed && !isComplete;
+
+  const tone = isFailed ? "chip-risk" : isComplete ? "chip-tied" : "chip-live";
+
   return (
-    <span
-      className={
-        "inline-flex items-center gap-1.5 border px-2 py-0.5 text-xs " +
-        (isFailed
-          ? "border-signal text-signal"
-          : isTerminal
-            ? "border-hairline text-foreground"
-            : "border-hairline text-muted")
-      }
-    >
-      {!isTerminal && <span aria-hidden className="inline-block h-1.5 w-1.5 rounded-full bg-current" />}
+    <span className={`chip ${tone}`}>
+      <span aria-hidden className={"dot " + (inFlight ? "pulse-dot" : "")} />
       {LABELS[state] ?? state}
     </span>
   );

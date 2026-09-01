@@ -100,3 +100,76 @@ def test_write_corpus_emits_four_csvs_and_truth_json(tmp_path: Path) -> None:
     assert truth_on_disk["record_group"] == truth.record_group
     invoices_csv = (tmp_path / "invoices.csv").read_text()
     assert invoices_csv.count("\n") == len(corpus.invoices) + 1  # header + rows
+
+
+class TestVariance:
+    """The corpus has to be uneven in the ways real books are uneven. A
+    generator that drifts back toward uniform amounts, one fee rate and one
+    narration format still passes every invariant above while quietly making
+    the engine untested, so the spread itself is asserted."""
+
+    def test_amounts_are_heavy_tailed_not_uniform(self) -> None:
+        corpus, _ = generate_corpus(1001, 500)
+        amounts = sorted(int(i.amount) for i in corpus.invoices)
+        median = amounts[len(amounts) // 2]
+        largest = amounts[-1]
+        # A uniform draw puts the median near the midpoint; a real invoice book
+        # has a mass of small values under a long tail.
+        assert largest > median * 20, f"tail too short: median={median} max={largest}"
+
+    def test_amounts_cluster_on_round_rupee_figures(self) -> None:
+        corpus, _ = generate_corpus(1001, 500)
+        round_hundreds = sum(1 for i in corpus.invoices if int(i.amount) % 10_000 == 0)
+        assert round_hundreds > len(corpus.invoices) * 0.2, "no round-number clustering"
+
+    def test_fee_rates_differ_by_method_including_zero_mdr_upi(self) -> None:
+        corpus, _ = generate_corpus(1001, 500)
+        rates_by_method: dict[str, set[int]] = {}
+        for payment in corpus.payments:
+            if payment.gross == 0:
+                continue
+            bps = round(int(payment.fee) * 10_000 / int(payment.gross))
+            rates_by_method.setdefault(payment.method, set()).add(bps)
+
+        assert len(rates_by_method) >= 3, "every payment used the same method"
+        assert rates_by_method.get("upi") == {0}, "UPI is zero-MDR in India; the corpus should say so"
+        assert any(bps > 100 for rates in rates_by_method.values() for bps in rates)
+
+    def test_bank_narrations_come_in_more_than_one_house_style(self) -> None:
+        corpus, _ = generate_corpus(1001, 500)
+        # Compare shapes, not contents: strip the digits that differ per row.
+        shapes = {"".join(c for c in b.narration if not c.isdigit()) for b in corpus.bank_lines}
+        assert len(shapes) >= 5, f"only {len(shapes)} narration shapes"
+
+    def test_utrs_come_in_both_numeric_and_bank_prefixed_shapes(self) -> None:
+        corpus, _ = generate_corpus(1001, 500)
+        utrs = [s.utr for s in corpus.settlements if s.utr]
+        assert any(u.isdigit() for u in utrs)
+        assert any(not u.isdigit() for u in utrs), "no alphanumeric UTRs; a digits-only matcher would pass"
+
+    def test_settlement_windows_and_credit_lag_both_vary(self) -> None:
+        corpus, truth = generate_corpus(1001, 500)
+        payments_by_id = {p.id: p for p in corpus.payments}
+        settlements_by_id = {s.id: s for s in corpus.settlements}
+        bank_lines_by_id = {b.id: b for b in corpus.bank_lines}
+
+        windows = set()
+        for settlement in corpus.settlements:
+            last_capture = max(payments_by_id[pid].captured_at.date() for pid in settlement.payment_ids)
+            windows.add((settlement.settled_at - last_capture).days)
+        assert len(windows) >= 3, f"settlement window never moved: {windows}"
+
+        # And the credit itself posts on the settlement date or a little after,
+        # which is what the engine's credit window exists to tolerate.
+        lags = {
+            (bank_lines_by_id[group.bank_line_id].value_date - settlements_by_id[group.settlement_id].settled_at).days
+            for group in truth.groups.values()
+            if group.bank_line_id and group.settlement_id
+        }
+        assert len(lags) >= 2, f"every credit posted on exactly the settlement date: {lags}"
+        assert min(lags) >= 0, "a credit posted before its own settlement"
+
+    def test_capture_times_spread_across_the_clock(self) -> None:
+        corpus, _ = generate_corpus(1001, 500)
+        hours = {p.captured_at.hour for p in corpus.payments}
+        assert len(hours) >= 10, "captures all land in the same few hours"

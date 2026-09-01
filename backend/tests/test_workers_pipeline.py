@@ -7,6 +7,7 @@ from llm.cache import ResponseCache
 from llm.client import FakeClient
 from llm.gateway import LlmGateway
 from llm.governor import Governor
+from llm.models import BACKUP_MODEL, PRIMARY_MODEL
 from llm.triage import build_candidates
 from llm.triage import build_prompt as triage_prompt
 from workers.pipeline import run_pipeline
@@ -15,8 +16,8 @@ from workers.pipeline import run_pipeline
 def _gateway(redis_client: redis.Redis, client: FakeClient) -> LlmGateway:
     governor = Governor(
         redis_client=redis_client,
-        rpm_limits={"gemini-3.6-flash": 1000, "gemini-3.5-flash-lite": 1000},
-        rpd_limits={"gemini-3.6-flash": 1000, "gemini-3.5-flash-lite": 1000},
+        rpm_limits={PRIMARY_MODEL: 1000, BACKUP_MODEL: 1000},
+        rpd_limits={PRIMARY_MODEL: 1000, BACKUP_MODEL: 1000},
         user_daily_quota=1000,
     )
     return LlmGateway(client=client, governor=governor, cache=ResponseCache(redis_client), schema_version="run-v1")

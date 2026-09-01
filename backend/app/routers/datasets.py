@@ -20,6 +20,7 @@ from db.tenancy import (
     DatasetRole,
     UserRecord,
     create_dataset,
+    dataset_name_taken,
     get_dataset_file_raw,
     get_dataset_for_user,
     list_dataset_files,
@@ -72,6 +73,11 @@ class DatasetFileUploadOut(BaseModel):
     total_rows: int
     valid_count: int
     errors: list[RowErrorOut]
+    # How many rows failed in total (errors above is capped), and what the
+    # parser had to repair to read the file at all. Both are shown to the
+    # uploader: a repair nobody is told about is indistinguishable from a bug.
+    error_count: int = 0
+    notes: list[str] = []
 
 
 class DatasetRecordsOut(BaseModel):
@@ -121,12 +127,17 @@ async def create_dataset_endpoint(
     pure, fast, in-memory computation) and comes back already "ready". An
     "uploaded" dataset starts empty -- the caller adds each role's file via
     POST /datasets/{id}/files, and it becomes "ready" once all four are in."""
+    name = payload.name.strip()
+    if not name:
+        raise ValidationFailedError("A dataset needs a name.")
+    if await dataset_name_taken(db, user.id, name):
+        raise ValidationFailedError(f"You already have a dataset named {name!r}. Pick a different name.")
     if payload.source == "generated":
         seed = payload.seed if payload.seed is not None else random.randint(1, 1_000_000)
         size = payload.size or DEFAULT_GENERATED_SIZE
         corpus, truth = generate_corpus(seed, size)
         dataset = await create_dataset(
-            db, user.id, payload.name, "generated", seed=seed, size=size, truth_json=json.dumps(truth_to_dict(truth))
+            db, user.id, name, "generated", seed=seed, size=size, truth_json=json.dumps(truth_to_dict(truth))
         )
         role_records: dict[DatasetRole, list[Any]] = {
             "ledger": corpus.invoices,
@@ -148,7 +159,7 @@ async def create_dataset_endpoint(
             )
         await recompute_dataset_status(db, dataset.id)
     else:
-        dataset = await create_dataset(db, user.id, payload.name, "uploaded")
+        dataset = await create_dataset(db, user.id, name, "uploaded")
 
     refreshed = await get_dataset_for_user(db, dataset.id, user.id)
     assert refreshed is not None
@@ -214,6 +225,8 @@ async def upload_dataset_file_endpoint(
         total_rows=len(table.rows),
         valid_count=len(report.valid_records),
         errors=[RowErrorOut(row_number=e.row_number, reason=e.reason) for e in report.errors],
+        error_count=report.error_count,
+        notes=report.notes,
     )
 
 

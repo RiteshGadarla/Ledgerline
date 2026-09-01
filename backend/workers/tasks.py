@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from contracts.corpus import Corpus
 from datagen.generator import generate_corpus
 from datagen.models import Truth
+from datagen.mutations import apply_mutations, parse_mutation
 from datagen.serialize import truth_from_dict
 from db.tenancy import (
     REQUIRED_DATASET_ROLES,
@@ -20,6 +21,7 @@ from db.tenancy import (
 from db.tenancy import RunState as DbRunState
 from engine.pipeline import serialize_match_result
 from ingest.dataset_records import build_corpus
+from money.result import Ok
 from workers.forecast import build_forecast
 from workers.pipeline import RunState, run_pipeline
 
@@ -84,6 +86,19 @@ async def run_reconciliation(ctx: dict[str, Any], run_id: str, user_id: str) -> 
             await redis_client.publish(f"run:{run_id}", json.dumps({"state": "failed", "error": error}))
             return
         corpus, truth = loaded
+
+    # Mutations are applied after the corpus is assembled and before anything
+    # reads it, so the engine sees only the corrupted books -- it is never told
+    # that a corruption happened, which is the whole point of the exercise.
+    # The run row carries the normalised spec list, so replaying this run row
+    # reproduces this exact corruption rather than a fresh random one.
+    if run.mutations:
+        specs = []
+        for raw in run.mutations:
+            parsed = parse_mutation(raw)
+            if isinstance(parsed, Ok):
+                specs.append(parsed.value)
+        corpus, truth = apply_mutations(corpus, truth, specs, seed=run.seed or 0)
 
     try:
         gateway = gateway_factory(user_id)

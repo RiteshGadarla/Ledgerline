@@ -17,6 +17,7 @@ from app.deps import get_current_user
 from app.errors import NotFoundError, ValidationFailedError
 from app.redis_client import get_redis
 from contracts.models import CashForecast, Exception_, MatchGroup, RunMetrics
+from datagen.mutations import format_mutation, parse_mutation
 from db.tenancy import (
     Decision,
     ExceptionDecisionRecord,
@@ -30,6 +31,7 @@ from db.tenancy import (
     record_exception_decision,
 )
 from engine.pipeline import deserialize_match_result
+from money.result import Err
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -49,6 +51,9 @@ class RunOut(BaseModel):
     id: str
     source: str
     dataset_id: str | None
+    # What this run was sabotaged with, if anything -- so a result is never
+    # read without the corruption that produced it.
+    mutations: list[str] | None
     state: str
     error: str | None
     metrics: RunMetrics | None
@@ -70,6 +75,7 @@ def _run_out(run: RunRecord) -> RunOut:
         id=run.id,
         source=run.source,
         dataset_id=run.dataset_id,
+        mutations=run.mutations,
         state=run.state,
         error=run.error,
         metrics=metrics,
@@ -93,9 +99,18 @@ async def create_run_endpoint(
     db: AsyncSession = Depends(get_db),
     arq_pool: ArqRedis = Depends(get_arq_pool),
 ) -> RunOut:
+    # Normalised here rather than in the worker: a mutation the engine cannot
+    # apply has to be a 422 on the request that asked for it, not a run that
+    # fails ten seconds later with nothing to show for it.
+    mutations: list[str] | None = None
     if payload.mutations:
-        # The adversarial mutation engine (Phase 13) doesn't exist yet.
-        raise ValidationFailedError("mutations are not yet supported")
+        specs = []
+        for raw in payload.mutations:
+            parsed = parse_mutation(raw)
+            if isinstance(parsed, Err):
+                raise ValidationFailedError(parsed.reason)
+            specs.append(parsed.value)
+        mutations = [format_mutation(spec) for spec in specs]
 
     if payload.source == "dataset":
         if not payload.dataset_id:
@@ -113,7 +128,7 @@ async def create_run_endpoint(
         seed=payload.seed,
         dataset_id=payload.dataset_id,
         size=payload.size,
-        mutations=payload.mutations,
+        mutations=mutations,
         idempotency_key=payload.idempotency_key,
     )
     if created:

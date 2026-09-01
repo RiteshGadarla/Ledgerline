@@ -11,6 +11,24 @@ class PassId(StrEnum):
     LLM = "LLM"
 
 
+class MutationKind(StrEnum):
+    """The adversarial corruptions a corpus can be put through.
+
+    Each one models a way real books go wrong -- a payment posted twice, a
+    payout the bank never credited, a narration the bank's own formatter
+    mangled -- rather than random noise, because a corruption that could not
+    happen in production proves nothing about a reconciler that survives it.
+    """
+
+    DUPLICATE_PAYMENT = "duplicate_payment"
+    SHIFT_DATE = "shift_date"
+    ALTER_AMOUNT = "alter_amount"
+    DELETE_BANK_LINE = "delete_bank_line"
+    INJECT_UNRELATED_CREDIT = "inject_unrelated_credit"
+    SCRAMBLE_NARRATION = "scramble_narration"
+    SPLIT_PAYMENT = "split_payment"
+
+
 class ExceptionCode(StrEnum):
     AMT_MISMATCH_UNEXPLAINED = "AMT_MISMATCH_UNEXPLAINED"
     FEE_GST_DELTA_UNCONFIRMED = "FEE_GST_DELTA_UNCONFIRMED"

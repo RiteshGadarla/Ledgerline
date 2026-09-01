@@ -73,6 +73,7 @@ class Dataset(Base):
     A dataset is "ready" once all four roles have at least one valid row."""
 
     __tablename__ = "datasets"
+    __table_args__ = (Index("ix_datasets_user_name", "user_id", "name", unique=True),)
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)

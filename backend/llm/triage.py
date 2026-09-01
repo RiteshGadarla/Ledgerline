@@ -8,10 +8,11 @@ from engine.passes import p3_invoice_to_payment
 from engine.verifier import MatchProposal, UsedRecordIds, verify
 from llm.client import LlmResponse
 from llm.gateway import LlmGateway
+from llm.models import BACKUP_MODEL, PRIMARY_MODEL
 from llm.schemas import TRIAGE_SCHEMA_VERSION, LlmMatchProposal, TriageResponse
 from money.result import Err, Ok, Result
 
-TRIAGE_MODEL = "gemini-3.6-flash"
+TRIAGE_MODEL = PRIMARY_MODEL
 
 
 @dataclass(frozen=True)
@@ -161,7 +162,11 @@ async def run_triage(
     for candidate in build_candidates(settlement_ids, index, unresolved_bank_line_ids):
         prompt = build_prompt(candidate, index)
         result: Result[LlmResponse] = await gateway.generate(
-            model=TRIAGE_MODEL, prompt=prompt, response_schema=TriageResponse, user_id=user_id
+            model=TRIAGE_MODEL,
+            prompt=prompt,
+            response_schema=TriageResponse,
+            user_id=user_id,
+            fallbacks=(BACKUP_MODEL,),
         )
         if isinstance(result, Err):
             degraded = True

@@ -1,12 +1,12 @@
 import { AuthForm } from "@/components/AuthForm";
+import { AuthLayout } from "@/components/AuthLayout";
+
+export const metadata = { title: "Create an account · Ledgerline" };
 
 export default function RegisterPage() {
   return (
-    <div className="py-10">
+    <AuthLayout>
       <AuthForm mode="register" />
-      <p className="mx-auto mt-4 max-w-sm text-center text-sm text-muted">
-        Already have an account? <a href="/login" className="underline">Sign in</a>
-      </p>
-    </div>
+    </AuthLayout>
   );
 }

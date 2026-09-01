@@ -12,6 +12,7 @@ from llm.client import FakeClient
 from llm.explain import explain
 from llm.gateway import LlmGateway
 from llm.governor import Governor
+from llm.models import BACKUP_MODEL, PRIMARY_MODEL
 from llm.triage import build_candidates, build_prompt, run_triage
 
 SEEDS = [1001, 1002, 1003]
@@ -20,8 +21,8 @@ SEEDS = [1001, 1002, 1003]
 def _gateway(redis_client: redis.Redis, client: FakeClient) -> LlmGateway:
     governor = Governor(
         redis_client=redis_client,
-        rpm_limits={"gemini-3.6-flash": 10, "gemini-3.5-flash-lite": 15},
-        rpd_limits={"gemini-3.6-flash": 250, "gemini-3.5-flash-lite": 1000},
+        rpm_limits={PRIMARY_MODEL: 10, BACKUP_MODEL: 15},
+        rpd_limits={PRIMARY_MODEL: 250, BACKUP_MODEL: 1000},
         user_daily_quota=25,
     )
     return LlmGateway(client=client, governor=governor, cache=ResponseCache(redis_client), schema_version="run-v1")

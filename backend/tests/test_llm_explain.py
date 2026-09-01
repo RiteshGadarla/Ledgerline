@@ -9,13 +9,14 @@ from llm.client import FakeClient
 from llm.explain import build_prompt, explain
 from llm.gateway import LlmGateway
 from llm.governor import Governor
+from llm.models import BACKUP_MODEL, PRIMARY_MODEL
 
 
 def _gateway(redis_client: redis.Redis, client: FakeClient) -> LlmGateway:
     governor = Governor(
         redis_client=redis_client,
-        rpm_limits={"gemini-3.5-flash-lite": 1000},
-        rpd_limits={"gemini-3.5-flash-lite": 1000},
+        rpm_limits={PRIMARY_MODEL: 1000, BACKUP_MODEL: 1000},
+        rpd_limits={PRIMARY_MODEL: 1000, BACKUP_MODEL: 1000},
         user_daily_quota=1000,
     )
     return LlmGateway(client=client, governor=governor, cache=ResponseCache(redis_client), schema_version="explain-v1")

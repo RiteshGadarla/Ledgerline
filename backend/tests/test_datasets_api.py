@@ -189,3 +189,18 @@ def test_run_against_a_ready_dataset_is_accepted(runs_client: TestClient) -> Non
 
     assert response.status_code == 202
     assert response.json()["source"] == "dataset"
+
+
+def test_dataset_name_must_be_unique_per_user_but_not_across_users(runs_client: TestClient) -> None:
+    _register(runs_client, "name-user-a")
+    first = runs_client.post("/datasets", json={"name": "Synthetic-1", "source": "uploaded"})
+    assert first.status_code == 201, first.text
+
+    duplicate = runs_client.post("/datasets", json={"name": "  Synthetic-1  ", "source": "uploaded"})
+    assert duplicate.status_code == 422, duplicate.text
+    assert "already have a dataset named" in duplicate.json()["detail"]
+
+    # The same name under a different tenant is fine -- uniqueness is per user.
+    _register(runs_client, "name-user-b")
+    other_tenant = runs_client.post("/datasets", json={"name": "Synthetic-1", "source": "uploaded"})
+    assert other_tenant.status_code == 201, other_tenant.text

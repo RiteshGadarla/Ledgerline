@@ -7,6 +7,7 @@ from llm.cache import ResponseCache
 from llm.client import FakeClient, LlmResponse
 from llm.gateway import LlmGateway
 from llm.governor import Governor
+from llm.models import BACKUP_MODEL, PRIMARY_MODEL
 from money.result import Err, Ok
 
 
@@ -20,8 +21,8 @@ def _gateway(
 ) -> LlmGateway:
     governor = Governor(
         redis_client=redis_client,
-        rpm_limits={"gemini-3.6-flash": rpm},
-        rpd_limits={"gemini-3.6-flash": rpd},
+        rpm_limits={PRIMARY_MODEL: rpm, BACKUP_MODEL: rpm},
+        rpd_limits={PRIMARY_MODEL: rpd, BACKUP_MODEL: rpd},
         user_daily_quota=quota,
     )
     return LlmGateway(client=client, governor=governor, cache=ResponseCache(redis_client), schema_version="1")
@@ -32,12 +33,8 @@ async def test_identical_request_twice_issues_one_upstream_call(redis_client: re
     client = FakeClient({"match these": fixture})
     gateway = _gateway(redis_client, client)
 
-    first = await gateway.generate(
-        model="gemini-3.6-flash", prompt="match these", response_schema=Proposal, user_id="u1"
-    )
-    second = await gateway.generate(
-        model="gemini-3.6-flash", prompt="match these", response_schema=Proposal, user_id="u1"
-    )
+    first = await gateway.generate(model=PRIMARY_MODEL, prompt="match these", response_schema=Proposal, user_id="u1")
+    second = await gateway.generate(model=PRIMARY_MODEL, prompt="match these", response_schema=Proposal, user_id="u1")
 
     assert isinstance(first, Ok)
     assert isinstance(second, Ok)
@@ -49,9 +46,7 @@ async def test_governor_denial_surfaces_as_err_not_an_exception(redis_client: re
     client = FakeClient({"match these": json.dumps({"invoice_id": "INV1", "confidence": 0.95})})
     gateway = _gateway(redis_client, client, quota=0)
 
-    result = await gateway.generate(
-        model="gemini-3.6-flash", prompt="match these", response_schema=Proposal, user_id="u1"
-    )
+    result = await gateway.generate(model=PRIMARY_MODEL, prompt="match these", response_schema=Proposal, user_id="u1")
 
     assert isinstance(result, Err)
     assert len(client.calls) == 0
@@ -71,13 +66,11 @@ async def test_schema_violation_is_rejected_never_partially_applied(redis_client
     client = _RawClient('{"invoice_id": "INV1"}')  # missing required "confidence"
     gateway = _gateway(redis_client, client)  # type: ignore[arg-type]
 
-    result = await gateway.generate(
-        model="gemini-3.6-flash", prompt="bad prompt", response_schema=Proposal, user_id="u1"
-    )
+    result = await gateway.generate(model=PRIMARY_MODEL, prompt="bad prompt", response_schema=Proposal, user_id="u1")
 
     assert isinstance(result, Err)
     assert "schema" in result.reason
-    cached = await ResponseCache(redis_client).get("gemini-3.6-flash", "bad prompt", "1")
+    cached = await ResponseCache(redis_client).get(PRIMARY_MODEL, "bad prompt", "1")
     assert cached is None, "a malformed response must never be cached"
 
 
@@ -98,7 +91,7 @@ async def test_429_storm_degrades_to_err_after_retries_exhausted(redis_client: r
     client = _AlwaysTransientClient()
     gateway = _gateway(redis_client, client)  # type: ignore[arg-type]
 
-    result = await gateway.generate(model="gemini-3.6-flash", prompt="anything", response_schema=Proposal, user_id="u1")
+    result = await gateway.generate(model=PRIMARY_MODEL, prompt="anything", response_schema=Proposal, user_id="u1")
 
     assert isinstance(result, Err)
     assert client.call_count == 3  # max_attempts in with_backoff

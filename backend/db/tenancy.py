@@ -141,6 +141,9 @@ class RunRecord:
     seed: int | None
     dataset_id: str | None
     size: int | None
+    # The adversarial corruptions this run was put through, normalised. Carried
+    # on the record so the run's own URL reproduces exactly what was tested.
+    mutations: list[str] | None
     state: RunState
     error: str | None
     result_json: str | None
@@ -158,6 +161,7 @@ def _to_run_record(run: Run) -> RunRecord:
         seed=run.seed,
         dataset_id=run.dataset_id,
         size=run.size,
+        mutations=run.mutations,
         state=cast("RunState", run.state),
         error=run.error,
         result_json=run.result_json,
@@ -405,6 +409,14 @@ async def create_dataset(
     await db.commit()
     await db.refresh(dataset)
     return _to_dataset_record(dataset)
+
+
+async def dataset_name_taken(db: AsyncSession, user_id: str, name: str) -> bool:
+    """Names are unique per user (ix_datasets_user_name), so this is the
+    friendly pre-check in front of that index -- the index is still what
+    guarantees it under concurrent creates."""
+    result = await db.execute(select(Dataset.id).where(Dataset.user_id == user_id, Dataset.name == name))
+    return result.first() is not None
 
 
 async def get_dataset_for_user(db: AsyncSession, dataset_id: str, user_id: str) -> DatasetRecord | None:

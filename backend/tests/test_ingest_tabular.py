@@ -27,7 +27,7 @@ def test_csv_with_bom() -> None:
 
 
 def test_csv_with_indian_grouped_amount_passes_through_as_text() -> None:
-    content = _csv_bytes("id,amount\nINV1,\"1,23,456.78\"\n")
+    content = _csv_bytes('id,amount\nINV1,"1,23,456.78"\n')
     result = parse_table(content, "invoices.csv")
     assert isinstance(result, Ok)
     assert result.value.rows[0]["amount"] == "1,23,456.78"

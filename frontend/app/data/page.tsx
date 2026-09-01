@@ -1,9 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
+import { EmptyState, Loading, Modal, PanelHead, Surface } from "@/components/Surface";
 import { RequireAuth } from "@/components/RequireAuth";
+import { UserBadge } from "@/components/UserBadge";
 import { api } from "@/lib/api/client";
 import type { components } from "@/lib/api/client";
+import { formatTimestamp } from "@/lib/time";
 
 type DatasetOut = components["schemas"]["DatasetOut"];
 type DatasetFileOut = components["schemas"]["DatasetFileOut"];
@@ -11,20 +15,38 @@ type DatasetRecordsOut = components["schemas"]["DatasetRecordsOut"];
 type PreviewOut = components["schemas"]["PreviewOut"];
 type FieldMappingOut = components["schemas"]["FieldMappingOut"];
 
-const ROLES: { value: string; label: string }[] = [
-  { value: "ledger", label: "Ledger (invoices)" },
-  { value: "gateway", label: "Gateway (payments)" },
-  { value: "settlement", label: "Settlement" },
-  { value: "bank", label: "Bank statement" },
+const ROLES: { value: string; label: string; hint: string }[] = [
+  { value: "ledger", label: "Ledger", hint: "invoices you raised" },
+  { value: "gateway", label: "Gateway", hint: "payments captured" },
+  { value: "settlement", label: "Settlement", hint: "payouts made to you" },
+  { value: "bank", label: "Bank statement", hint: "credits that landed" },
 ];
 
 const RECORDS_PAGE_SIZE = 20;
+
+const DEFAULT_SEED = "42";
+
+function isNameTaken(existingNames: string[], name: string): boolean {
+  const candidate = name.trim().toLowerCase();
+  return candidate !== "" && existingNames.some((n) => n.trim().toLowerCase() === candidate);
+}
+
+/** Synthetic-1, then Synthetic-2, and so on: the lowest number not already taken. */
+function nextSyntheticName(existingNames: string[]): string {
+  const taken = new Set(existingNames.map((n) => n.trim().toLowerCase()));
+  let n = 1;
+  while (taken.has(`synthetic-${n}`)) n += 1;
+  return `Synthetic-${n}`;
+}
 
 // FormData uploads don't fit openapi-fetch's typed body shape cleanly (the
 // generated type for a multipart file field is `string`, not `File`), so
 // these go through plain fetch against the same proxy route and are cast to
 // the response types the generated schema already describes.
-async function postForm<T>(path: string, formData: FormData): Promise<{ data?: T; error?: { detail?: string } }> {
+async function postForm<T>(
+  path: string,
+  formData: FormData,
+): Promise<{ data?: T; error?: { detail?: string } }> {
   const response = await fetch(`/api${path}`, { method: "POST", body: formData });
   const body = await response.json();
   return response.ok ? { data: body as T } : { error: body as { detail?: string } };
@@ -44,35 +66,45 @@ function DataSurface() {
     api.GET("/datasets").then(({ data }) => setDatasets(data ?? []));
   }, []);
 
-  return (
-    <div className="flex flex-col gap-10">
-      <section>
-        <h1 className="text-lg font-semibold">Data</h1>
-        <p className="mt-1 text-sm text-muted">
-          How would you like to create a dataset -- generate a synthetic one, or upload your own ledger, gateway,
-          settlement, and bank files? Either way it becomes a reusable dataset you can close the books against from
-          the Run page.
-        </p>
+  const existingNames = (datasets ?? []).map((d) => d.name);
 
-        {creating === null ? (
-          <div className="mt-6 flex gap-3">
-            <button
-              type="button"
-              onClick={() => setCreating("generate")}
-              className="border border-foreground bg-foreground px-4 py-2 text-sm font-medium text-background"
-            >
-              Generate a synthetic dataset
-            </button>
-            <button
-              type="button"
-              onClick={() => setCreating("upload")}
-              className="border border-hairline px-4 py-2 text-sm font-medium"
-            >
-              Upload my own files
-            </button>
-          </div>
-        ) : creating === "generate" ? (
+  return (
+    <Surface
+      crumb="Console"
+      title={<span className="text-[15px] font-semibold tracking-[-0.015em]">Data</span>}
+      tools={<UserBadge />}
+      strip={[
+        { label: "READY", tone: "var(--readout-hi)" },
+        { label: "PARSER", value: "polars · pdfplumber" },
+        { label: "MAPPING", value: "user-confirmed" },
+      ]}
+    >
+      <p className="max-w-[80ch] text-[13px] leading-relaxed text-muted">
+        A dataset is a reusable set of ledger, gateway, settlement and bank files. Generate a
+        synthetic one to see the engine work, or upload your own, and either becomes something you can
+        close the books against.
+      </p>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <ChoiceCard
+          title="Generate a synthetic dataset"
+          body="A seeded corpus with a known truth file, so precision and recall are meaningful. The fastest way to see a full run end to end."
+          cta="Generate"
+          onClick={() => setCreating("generate")}
+          primary
+        />
+        <ChoiceCard
+          title="Upload your own files"
+          body="CSV, XLSX or PDF per role. Columns are mapped to canonical fields on upload; you can review and override the mapping per file afterwards."
+          cta="Upload"
+          onClick={() => setCreating("upload")}
+        />
+      </div>
+
+      {creating === "generate" && (
+        <Modal title="Generate a synthetic dataset" onClose={() => setCreating(null)}>
           <GenerateForm
+            existingNames={existingNames}
             onDone={async (dataset) => {
               await refreshDatasets();
               setSelectedId(dataset.id);
@@ -80,8 +112,13 @@ function DataSurface() {
             }}
             onCancel={() => setCreating(null)}
           />
-        ) : (
+        </Modal>
+      )}
+
+      {creating === "upload" && (
+        <Modal title="Upload your own files" onClose={() => setCreating(null)}>
           <UploadDatasetForm
+            existingNames={existingNames}
             onDone={async (datasetId) => {
               await refreshDatasets();
               setSelectedId(datasetId);
@@ -89,54 +126,103 @@ function DataSurface() {
             }}
             onCancel={() => setCreating(null)}
           />
-        )}
-      </section>
+        </Modal>
+      )}
 
-      <section>
-        <h2 className="text-sm font-semibold text-muted">Your datasets</h2>
-        {datasets === null ? (
-          <p className="mt-3 text-sm text-muted">Loading…</p>
-        ) : datasets.length === 0 ? (
-          <p className="mt-3 text-sm text-muted">No datasets yet -- generate or upload one above.</p>
-        ) : (
-          <table className="mt-3 w-full border-collapse text-sm">
-            <thead>
-              <tr className="border-b border-hairline text-left text-muted">
-                <th scope="col" className="py-2 font-normal">Name</th>
-                <th scope="col" className="py-2 font-normal">Source</th>
-                <th scope="col" className="py-2 font-normal">Files</th>
-                <th scope="col" className="py-2 font-normal">Status</th>
-                <th scope="col" className="py-2 font-normal">Created</th>
-              </tr>
-            </thead>
-            <tbody>
-              {datasets.map((dataset) => (
-                <tr
-                  key={dataset.id}
-                  onClick={() => setSelectedId(dataset.id === selectedId ? null : dataset.id)}
-                  className={
-                    "cursor-pointer border-b border-hairline " + (dataset.id === selectedId ? "bg-hairline/20" : "")
-                  }
-                >
-                  <td className="py-2 font-medium">{dataset.name}</td>
-                  <td className="py-2 text-muted">{dataset.source}</td>
-                  <td className="py-2 font-mono text-xs tabular">
-                    {dataset.files.filter((f) => f.valid_count > 0).length}/4
-                  </td>
-                  <td className="py-2">
-                    <DatasetStatusPill status={dataset.status} />
-                  </td>
-                  <td className="py-2 text-muted">{new Date(dataset.created_at).toLocaleString()}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
+      <section className="panel">
+        <PanelHead
+          legend="Your datasets"
+          note={datasets && datasets.length > 0 ? `${datasets.length} TOTAL` : undefined}
+        />
+
+        <div className="overflow-hidden">
+          {datasets === null ? (
+            <div className="px-5">
+              <Loading />
+            </div>
+          ) : datasets.length === 0 ? (
+            <EmptyState
+              title="No datasets yet"
+              body="Generate a synthetic corpus or upload your own files to get started."
+            />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="grid-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Source</th>
+                    <th scope="col">Files</th>
+                    <th scope="col">Status</th>
+                    <th scope="col">Created</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {datasets.map((dataset) => {
+                    const selected = dataset.id === selectedId;
+                    return (
+                      <tr
+                        key={dataset.id}
+                        onClick={() => setSelectedId(selected ? null : dataset.id)}
+                        className={"row-interactive " + (selected ? "row-selected" : "")}
+                      >
+                        <td className="font-medium">{dataset.name}</td>
+                        <td className="text-muted">{dataset.source}</td>
+                        <td className="font-mono text-xs tabular text-muted">
+                          {dataset.files.filter((f) => f.valid_count > 0).length}/4
+                        </td>
+                        <td>
+                          <DatasetStatusPill status={dataset.status} />
+                        </td>
+                        <td className="text-muted tabular">
+                          {formatTimestamp(dataset.created_at)}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
       </section>
 
       {selectedId && (
-        <DatasetDetail key={selectedId} datasetId={selectedId} onChanged={refreshDatasets} onClose={() => setSelectedId(null)} />
+        <DatasetDetail
+          key={selectedId}
+          datasetId={selectedId}
+          onChanged={refreshDatasets}
+          onClose={() => setSelectedId(null)}
+        />
       )}
+    </Surface>
+  );
+}
+
+function ChoiceCard({
+  title,
+  body,
+  cta,
+  onClick,
+  primary = false,
+}: {
+  title: string;
+  body: string;
+  cta: string;
+  onClick: () => void;
+  primary?: boolean;
+}) {
+  return (
+    <div className="panel flex flex-col gap-3 p-4">
+      <span className="legend legend-hi">{title}</span>
+      <p className="flex-1 text-[12.5px] leading-relaxed text-muted">{body}</p>
+      <button
+        type="button"
+        onClick={onClick}
+        className={"btn self-start " + (primary ? "btn-primary" : "")}
+      >
+        {cta}
+      </button>
     </div>
   );
 }
@@ -144,27 +230,50 @@ function DataSurface() {
 function DatasetStatusPill({ status }: { status: string }) {
   const ready = status === "ready";
   return (
-    <span
-      className={"inline-flex items-center gap-1.5 border px-2 py-0.5 text-xs " + (ready ? "border-hairline" : "border-hairline text-muted")}
-    >
-      <span aria-hidden className={"inline-block h-1.5 w-1.5 rounded-full " + (ready ? "bg-current" : "bg-transparent border border-current")} />
+    <span className={"chip " + (ready ? "chip-tied" : "")}>
+      <span aria-hidden className="dot" />
       {ready ? "Ready" : "Incomplete"}
     </span>
   );
 }
 
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <span className="label">
+        {label}
+        {hint && <span className="ml-1.5 font-normal text-faint">{hint}</span>}
+      </span>
+      {children}
+    </div>
+  );
+}
+
 function GenerateForm({
+  existingNames,
   onDone,
   onCancel,
 }: {
+  existingNames: string[];
   onDone: (dataset: DatasetOut) => void;
   onCancel: () => void;
 }) {
-  const [name, setName] = useState("Generated corpus");
-  const [seed, setSeed] = useState("");
+  // Seeded once from the names that existed when the modal opened; the field
+  // stays editable, so a later keystroke isn't fighting a recomputed default.
+  const [name, setName] = useState(() => nextSyntheticName(existingNames));
+  const [seed, setSeed] = useState(DEFAULT_SEED);
   const [size, setSize] = useState("150");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const taken = isNameTaken(existingNames, name);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -180,72 +289,112 @@ function GenerateForm({
     });
     setBusy(false);
     if (!data) {
-      setError(apiError && typeof apiError.detail === "string" ? apiError.detail : "Could not generate a dataset.");
+      setError(
+        apiError && typeof apiError.detail === "string"
+          ? apiError.detail
+          : "Could not generate a dataset.",
+      );
       return;
     }
     onDone(data);
   }
 
   return (
-    <form onSubmit={submit} className="mt-6 flex flex-wrap items-end gap-4 border border-hairline p-4">
-      <label className="flex flex-col gap-1 text-sm">
-        Name
-        <input
-          className="w-56 border border-hairline px-3 py-2 text-sm"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-        />
-      </label>
-      <label className="flex flex-col gap-1 text-sm">
-        Seed (optional)
-        <input
-          className="w-32 border border-hairline px-3 py-2 font-mono text-sm tabular"
-          inputMode="numeric"
-          placeholder="random"
-          value={seed}
-          onChange={(e) => setSeed(e.target.value)}
-        />
-      </label>
-      <label className="flex flex-col gap-1 text-sm">
-        Size
-        <input
-          className="w-32 border border-hairline px-3 py-2 font-mono text-sm tabular"
-          inputMode="numeric"
-          value={size}
-          onChange={(e) => setSize(e.target.value)}
-        />
-      </label>
-      <button
-        type="submit"
-        disabled={busy || !name}
-        className="border border-foreground bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-50"
-      >
-        {busy ? "Generating…" : "Generate"}
-      </button>
-      <button type="button" onClick={onCancel} className="border border-hairline px-4 py-2 text-sm">
-        Cancel
-      </button>
-      {error && <p role="alert" className="w-full text-sm text-signal">{error}</p>}
+    <form onSubmit={submit} className="flex flex-col gap-5">
+      <div className="grid gap-4 sm:grid-cols-3">
+        <Field label="Name" hint="unique">
+          <input
+            className="field"
+            value={name}
+            aria-invalid={taken || undefined}
+            onChange={(e) => setName(e.target.value)}
+          />
+          {taken && <span className="text-[11px] text-signal">That name is already used.</span>}
+        </Field>
+        <Field label="Seed" hint="blank = random">
+          <input
+            className="field font-mono tabular"
+            inputMode="numeric"
+            placeholder="random"
+            value={seed}
+            onChange={(e) => setSeed(e.target.value)}
+          />
+        </Field>
+        <Field label="Size" hint="records">
+          <input
+            className="field font-mono tabular"
+            inputMode="numeric"
+            value={size}
+            onChange={(e) => setSize(e.target.value)}
+          />
+        </Field>
+      </div>
+
+      <p className="text-xs leading-relaxed text-faint">
+        A fixed seed makes the corpus reproducible: the same seed and size generate the same
+        records, which is what lets a run&apos;s output hash be compared against a previous one.
+      </p>
+
+      <div className="flex gap-2.5">
+        <button type="submit" disabled={busy || !name.trim() || taken} className="btn btn-primary">
+          {busy ? "Generating…" : "Generate dataset"}
+        </button>
+        <button type="button" onClick={onCancel} className="btn btn-ghost">
+          Cancel
+        </button>
+      </div>
+
+      {error && (
+        <p
+          role="alert"
+          className="rounded-lg border border-signal/50 bg-signal-bg px-3 py-2 text-sm text-signal"
+        >
+          {error}
+        </p>
+      )}
     </form>
   );
 }
 
-type RoleUploadOutcome = { ok: true; valid_count: number; total_rows: number } | { ok: false; error: string };
+type RoleUploadOutcome =
+  | { ok: true; valid_count: number; total_rows: number; error_count: number; notes: string[] }
+  | { ok: false; error: string };
 
+/**
+ * What the parser had to do to read the file, said out loud.
+ *
+ * Real exports arrive with a letterhead above the columns, a totals line at
+ * the bottom and a spacer column down the middle, and the parser repairs all
+ * of it. A repair nobody is told about is indistinguishable from a bug, and
+ * a reconciliation that quietly skipped forty rows still balances, and still
+ * lies. So every repair is reported, every rejected row is counted, and the
+ * count of what was saved is stated against the count of what was read.
+ */
 function RoleUploadResult({ outcome }: { outcome: RoleUploadOutcome }) {
-  return outcome.ok ? (
-    <span className="text-xs text-muted">
-      {outcome.valid_count}/{outcome.total_rows} rows saved
-    </span>
-  ) : (
-    <span className="text-xs text-signal">{outcome.error}</span>
+  if (!outcome.ok) {
+    return <span className="text-xs text-signal">{outcome.error}</span>;
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      <span className={"text-xs " + (outcome.error_count > 0 ? "text-caution" : "text-positive")}>
+        {outcome.valid_count}/{outcome.total_rows} rows saved
+        {outcome.error_count > 0 && ` · ${outcome.error_count} rejected`}
+      </span>
+      {outcome.notes.map((note) => (
+        <span key={note} className="text-[11px] leading-snug text-faint">
+          {note}
+        </span>
+      ))}
+    </div>
   );
 }
 
 function UploadDatasetForm({
+  existingNames,
   onDone,
   onCancel,
 }: {
+  existingNames: string[];
   onDone: (datasetId: string) => void;
   onCancel: () => void;
 }) {
@@ -256,6 +405,7 @@ function UploadDatasetForm({
   const [results, setResults] = useState<Record<string, RoleUploadOutcome> | null>(null);
 
   const hasAnyFile = ROLES.some((r) => files[r.value]);
+  const taken = isNameTaken(existingNames, name);
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -263,10 +413,16 @@ function UploadDatasetForm({
     setError(null);
     setResults(null);
 
-    const { data: dataset, error: apiError } = await api.POST("/datasets", { body: { name, source: "uploaded" } });
+    const { data: dataset, error: apiError } = await api.POST("/datasets", {
+      body: { name, source: "uploaded" },
+    });
     if (!dataset) {
       setBusy(false);
-      setError(apiError && typeof apiError.detail === "string" ? apiError.detail : "Could not create a dataset.");
+      setError(
+        apiError && typeof apiError.detail === "string"
+          ? apiError.detail
+          : "Could not create a dataset.",
+      );
       return;
     }
 
@@ -278,7 +434,10 @@ function UploadDatasetForm({
       const previewForm = new FormData();
       previewForm.set("role", role);
       previewForm.set("file", file);
-      const { data: preview, error: previewError } = await postForm<PreviewOut>("/data/preview", previewForm);
+      const { data: preview, error: previewError } = await postForm<PreviewOut>(
+        "/data/preview",
+        previewForm,
+      );
       if (!preview) {
         outcomes[role] = { ok: false, error: previewError?.detail ?? "Could not read that file." };
         continue;
@@ -293,12 +452,20 @@ function UploadDatasetForm({
       saveForm.set("role", role);
       saveForm.set("mapping", JSON.stringify(mapping));
       saveForm.set("file", file);
-      const { data: saved, error: saveError } = await postForm<{ valid_count: number; total_rows: number }>(
-        `/datasets/${dataset.id}/files`,
-        saveForm
-      );
+      const { data: saved, error: saveError } = await postForm<{
+        valid_count: number;
+        total_rows: number;
+        error_count: number;
+        notes: string[];
+      }>(`/datasets/${dataset.id}/files`, saveForm);
       outcomes[role] = saved
-        ? { ok: true, valid_count: saved.valid_count, total_rows: saved.total_rows }
+        ? {
+            ok: true,
+            valid_count: saved.valid_count,
+            total_rows: saved.total_rows,
+            error_count: saved.error_count ?? 0,
+            notes: saved.notes ?? [],
+          }
         : { ok: false, error: saveError?.detail ?? "Could not save that file." };
     }
 
@@ -308,47 +475,62 @@ function UploadDatasetForm({
   }
 
   return (
-    <form onSubmit={submit} className="mt-6 flex flex-col gap-4 border border-hairline p-4">
-      <label className="flex flex-col gap-1 text-sm">
-        Name
+    <form onSubmit={submit} className="flex flex-col gap-5">
+      <Field label="Dataset name" hint="unique">
         <input
-          className="w-56 border border-hairline px-3 py-2 text-sm"
+          className="field sm:max-w-xs"
           placeholder="e.g. Q1 books"
           value={name}
+          aria-invalid={taken || undefined}
           onChange={(e) => setName(e.target.value)}
         />
-      </label>
+        {taken && <span className="text-[11px] text-signal">That name is already used.</span>}
+      </Field>
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        {ROLES.map(({ value, label }) => (
-          <label key={value} className="flex flex-col gap-1 text-sm">
-            {label}
+      <div className="grid gap-3 sm:grid-cols-2">
+        {ROLES.map(({ value, label, hint }) => (
+          <div key={value} className="card-flush flex flex-col gap-2 p-4">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-sm font-medium">{label}</span>
+              <span className="text-[11px] text-faint">{hint}</span>
+            </div>
             <input
               type="file"
               accept=".csv,.xlsx,.pdf"
-              onChange={(e) => setFiles((prev) => ({ ...prev, [value]: e.target.files?.[0] ?? null }))}
-              className="text-sm"
+              aria-label={`${label} file`}
+              onChange={(e) =>
+                setFiles((prev) => ({ ...prev, [value]: e.target.files?.[0] ?? null }))
+              }
+              className="field field-file py-2 text-xs"
             />
             {results?.[value] && <RoleUploadResult outcome={results[value]} />}
-          </label>
+          </div>
         ))}
       </div>
 
-      <div className="flex gap-3">
+      <div className="flex gap-2.5">
         <button
           type="submit"
-          disabled={busy || !name || !hasAnyFile}
-          className="border border-foreground bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-50"
+          disabled={busy || !name.trim() || taken || !hasAnyFile}
+          className="btn btn-primary"
         >
           {busy ? "Uploading…" : "Upload dataset"}
         </button>
-        <button type="button" onClick={onCancel} className="border border-hairline px-4 py-2 text-sm">
+        <button type="button" onClick={onCancel} className="btn btn-ghost">
           Cancel
         </button>
       </div>
-      {error && <p role="alert" className="text-sm text-signal">{error}</p>}
-      <p className="text-xs text-muted">
-        You can add or replace any of these files later from the dataset&apos;s own page.
+
+      {error && (
+        <p
+          role="alert"
+          className="rounded-lg border border-signal/50 bg-signal-bg px-3 py-2 text-sm text-signal"
+        >
+          {error}
+        </p>
+      )}
+      <p className="text-xs text-faint">
+        You can add or replace any of these files later from the dataset&apos;s own panel below.
       </p>
     </form>
   );
@@ -366,151 +548,281 @@ function DatasetDetail({
   const [dataset, setDataset] = useState<DatasetOut | null>(null);
   const [activeRole, setActiveRole] = useState<string | null>(null);
   const [records, setRecords] = useState<DatasetRecordsOut | null>(null);
+  const [loadingRecords, setLoadingRecords] = useState(false);
   const [offset, setOffset] = useState(0);
+  const [pageSize, setPageSize] = useState(RECORDS_PAGE_SIZE);
+  const [replacing, setReplacing] = useState(false);
 
   async function refresh(): Promise<void> {
-    const { data } = await api.GET("/datasets/{dataset_id}", { params: { path: { dataset_id: datasetId } } });
+    const { data } = await api.GET("/datasets/{dataset_id}", {
+      params: { path: { dataset_id: datasetId } },
+    });
     setDataset(data ?? null);
   }
 
-  // Keyed by datasetId at the call site below, so this component remounts
-  // (resetting activeRole/records for free) whenever the selection changes.
-  useEffect(() => {
-    api.GET("/datasets/{dataset_id}", { params: { path: { dataset_id: datasetId } } }).then(({ data }) =>
-      setDataset(data ?? null)
-    );
-  }, [datasetId]);
-
-  async function viewRecords(role: string, nextOffset: number): Promise<void> {
+  async function loadRecords(role: string, nextOffset: number, limit: number): Promise<void> {
     setActiveRole(role);
     setOffset(nextOffset);
+    setLoadingRecords(true);
     const { data } = await api.GET("/datasets/{dataset_id}/files/{role}/records", {
-      params: { path: { dataset_id: datasetId, role }, query: { offset: nextOffset, limit: RECORDS_PAGE_SIZE } },
+      params: { path: { dataset_id: datasetId, role }, query: { offset: nextOffset, limit } },
     });
     setRecords(data ?? null);
+    setLoadingRecords(false);
   }
 
-  if (!dataset) {
-    return <p className="text-sm text-muted">Loading dataset…</p>;
-  }
+  // Keyed by datasetId at the call site, so this component remounts whenever
+  // the selection changes; the first role that actually has rows opens on its
+  // own, so the viewer never lands on an empty table.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .GET("/datasets/{dataset_id}", { params: { path: { dataset_id: datasetId } } })
+      .then(({ data }) => {
+        if (cancelled || !data) return;
+        setDataset(data);
+        const first = data.files.find((f) => f.valid_count > 0);
+        if (first) void loadRecords(first.role, 0, RECORDS_PAGE_SIZE);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [datasetId]);
 
-  const filesByRole = Object.fromEntries(dataset.files.map((f) => [f.role, f]));
+  const filesByRole: Record<string, DatasetFileOut | undefined> = Object.fromEntries(
+    (dataset?.files ?? []).map((f) => [f.role, f]),
+  );
+  const activeFile = activeRole ? filesByRole[activeRole] : undefined;
+  const canReplace = dataset?.source === "uploaded";
+  const shownFrom = records && records.total > 0 ? offset + 1 : 0;
+  const shownTo = records ? offset + records.records.length : 0;
 
   return (
-    <section className="border border-hairline p-4">
-      <div className="flex items-center justify-between">
-        <h2 className="text-sm font-semibold">{dataset.name}</h2>
-        <button type="button" onClick={onClose} className="text-xs text-muted underline">
-          Close
-        </button>
-      </div>
-
-      <table className="mt-4 w-full border-collapse text-sm">
-        <thead>
-          <tr className="border-b border-hairline text-left text-muted">
-            <th scope="col" className="py-2 font-normal">Role</th>
-            <th scope="col" className="py-2 font-normal">Rows</th>
-            <th scope="col" className="py-2 font-normal">File</th>
-            <th scope="col" className="py-2 font-normal">Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {ROLES.map(({ value, label }) => {
-            const file = filesByRole[value] as DatasetFileOut | undefined;
-            return (
-              <tr key={value} className="border-b border-hairline align-top">
-                <td className="py-2">{label}</td>
-                <td className="py-2 font-mono tabular text-xs">
-                  {file ? `${file.valid_count}/${file.row_count} valid` : "--"}
-                </td>
-                <td className="py-2 text-xs text-muted">{file?.raw_filename ?? (file ? "generated" : "not uploaded")}</td>
-                <td className="py-2">
-                  <div className="flex flex-wrap items-center gap-3">
-                    {file && file.valid_count > 0 && (
-                      <button
-                        type="button"
-                        onClick={() => viewRecords(value, 0)}
-                        className="text-xs underline"
-                      >
-                        View processed
-                      </button>
-                    )}
-                    {file?.has_raw && (
-                      <a href={`/api/datasets/${datasetId}/files/${value}/raw`} className="text-xs underline">
-                        Download raw
-                      </a>
-                    )}
-                    {dataset.source === "uploaded" && (
-                      <RoleUploader
-                        datasetId={datasetId}
-                        role={value}
-                        label={file ? "Replace file" : "Upload file"}
-                        onSaved={() => {
-                          refresh();
-                          onChanged();
-                        }}
-                      />
-                    )}
-                  </div>
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-
-      {activeRole && records && (
-        <div className="mt-6">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs font-semibold text-muted">
-              {activeRole} -- {records.total} row{records.total === 1 ? "" : "s"}
-            </h3>
-            <div className="flex gap-2">
+    <Modal
+      size="lg"
+      height="tall"
+      padded={false}
+      ariaLabel={dataset ? `Dataset ${dataset.name}` : "Dataset"}
+      onClose={onClose}
+      title={
+        <span className="flex min-w-0 items-baseline gap-2.5">
+          <span className="legend">Dataset</span>
+          <span aria-hidden className="text-faint">
+            /
+          </span>
+          <span className="truncate text-[15px] font-semibold tracking-[-0.015em]">
+            {dataset?.name ?? "Loading…"}
+          </span>
+        </span>
+      }
+      meta={
+        dataset && (
+          <span className="flex flex-wrap items-center gap-1.5">
+            <DatasetStatusPill status={dataset.status} />
+            <span className="chip">{dataset.source}</span>
+            {dataset.seed !== null && <span className="chip">seed {dataset.seed}</span>}
+            {dataset.size !== null && <span className="chip">size {dataset.size}</span>}
+          </span>
+        )
+      }
+      footer={
+        <>
+          <span className="mono text-[11px] text-faint tabular">
+            {records
+              ? `${shownFrom}–${shownTo} of ${records.total} row${records.total === 1 ? "" : "s"}`
+              : "No rows loaded"}
+          </span>
+          {activeRole && records && records.total > pageSize && (
+            <span className="flex items-center gap-1.5">
               <button
                 type="button"
-                disabled={offset === 0}
-                onClick={() => viewRecords(activeRole, Math.max(0, offset - RECORDS_PAGE_SIZE))}
-                className="border border-hairline px-2 py-1 text-xs disabled:opacity-40"
+                disabled={offset === 0 || loadingRecords}
+                onClick={() => loadRecords(activeRole, Math.max(0, offset - pageSize), pageSize)}
+                className="btn btn-ghost btn-sm"
               >
                 Prev
               </button>
               <button
                 type="button"
-                disabled={offset + records.records.length >= records.total}
-                onClick={() => viewRecords(activeRole, offset + RECORDS_PAGE_SIZE)}
-                className="border border-hairline px-2 py-1 text-xs disabled:opacity-40"
+                disabled={shownTo >= records.total || loadingRecords}
+                onClick={() => loadRecords(activeRole, offset + pageSize, pageSize)}
+                className="btn btn-ghost btn-sm"
               >
                 Next
               </button>
-            </div>
+            </span>
+          )}
+          {activeRole && (
+            <label className="flex items-center gap-1.5">
+              <span className="legend">Rows</span>
+              <select
+                aria-label="Rows per page"
+                value={pageSize}
+                onChange={(e) => {
+                  const next = Number(e.target.value);
+                  setPageSize(next);
+                  void loadRecords(activeRole, 0, next);
+                }}
+                className="field w-[4.5rem] py-1 text-xs"
+              >
+                {[20, 50, 100].map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <span className="ml-auto flex items-center gap-2">
+            {dataset?.status === "ready" && (
+              <Link href={`/run?dataset=${dataset.id}`} className="btn btn-primary btn-sm">
+                Close the books
+              </Link>
+            )}
+          </span>
+        </>
+      }
+    >
+      {!dataset ? (
+        <div className="px-5 pt-4">
+          <Loading label="Loading dataset…" />
+        </div>
+      ) : (
+        <div className="flex min-h-0 flex-1 flex-col">
+          {/* Role tabs: the same segmented control the run channels use. */}
+          <nav
+            aria-label="Dataset roles"
+            className="flex shrink-0 items-stretch overflow-x-auto border-b border-hairline bg-sunk"
+          >
+            {ROLES.map(({ value, label }, i) => {
+              const file = filesByRole[value];
+              const empty = !file || file.valid_count === 0;
+              const active = value === activeRole;
+              return (
+                <button
+                  key={value}
+                  type="button"
+                  aria-current={active ? "true" : undefined}
+                  onClick={() => {
+                    setReplacing(false);
+                    void loadRecords(value, 0, pageSize);
+                  }}
+                  className={
+                    "relative flex min-h-[42px] items-center gap-2 whitespace-nowrap border-r border-hairline px-4 text-[11px] font-semibold uppercase tracking-[0.1em] transition-colors " +
+                    (i === 0 ? "border-l-0 " : "") +
+                    (active ? "bg-surface text-foreground" : "text-muted hover:text-foreground")
+                  }
+                >
+                  {active && (
+                    <span aria-hidden className="absolute inset-x-0 -top-px h-0.5 bg-readout-hi" />
+                  )}
+                  {label}
+                  <span
+                    className={
+                      "mono rounded-sm px-1.5 py-px text-[10px] tracking-normal " +
+                      (empty ? "text-faint" : "bg-positive-bg text-positive")
+                    }
+                  >
+                    {empty ? "-" : file.valid_count}
+                  </span>
+                </button>
+              );
+            })}
+          </nav>
+
+          {/* Per-role toolbar: where this role's rows came from, and what you
+              can do to them. */}
+          <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-hairline px-5 py-2.5">
+            <span className="mono truncate text-[11px] text-muted">
+              {activeFile?.raw_filename ??
+                (activeFile ? "generated in place" : "no file for this role")}
+            </span>
+            {activeFile && (
+              <span className="mono text-[11px] text-faint tabular">
+                {activeFile.valid_count}/{activeFile.row_count} rows valid
+              </span>
+            )}
+            <span className="ml-auto flex items-center gap-2">
+              {activeFile?.has_raw && (
+                <a
+                  href={`/api/datasets/${datasetId}/files/${activeRole}/raw`}
+                  className="btn btn-sm"
+                >
+                  Download raw
+                </a>
+              )}
+              {canReplace && activeRole && !replacing && (
+                <button type="button" onClick={() => setReplacing(true)} className="btn btn-sm">
+                  {activeFile ? "Replace file" : "Upload file"}
+                </button>
+              )}
+            </span>
           </div>
-          <div className="mt-2 overflow-x-auto">
-            <RecordsTable records={records.records} />
+
+          {/* Capped, with its own scroll: a wide file's mapping table must not
+              push the records out of the dialog. */}
+          {canReplace && activeRole && replacing && (
+            <div className="max-h-[55%] shrink-0 overflow-auto border-b border-hairline p-5">
+              <RoleUploader
+                key={activeRole}
+                datasetId={datasetId}
+                role={activeRole}
+                onCancel={() => setReplacing(false)}
+                onSaved={() => {
+                  setReplacing(false);
+                  refresh();
+                  onChanged();
+                  void loadRecords(activeRole, 0, pageSize);
+                }}
+              />
+            </div>
+          )}
+
+          <div className="min-h-0 flex-1 overflow-auto">
+            {loadingRecords ? (
+              <div className="px-5">
+                <Loading label="Reading rows…" />
+              </div>
+            ) : !activeRole ? (
+              <EmptyState
+                title="Nothing to view yet"
+                body="This dataset has no processed rows in any role. Upload a file to fill one in."
+              />
+            ) : !records || records.records.length === 0 ? (
+              <EmptyState
+                title="No rows in this role"
+                body="Nothing has been parsed and validated here yet."
+              />
+            ) : (
+              <RecordsTable records={records.records} startIndex={offset} />
+            )}
           </div>
         </div>
       )}
-
-      {dataset.status === "ready" && (
-        <p className="mt-4 text-sm">
-          Ready to run. Head to <a href={`/run?dataset=${dataset.id}`} className="underline">Run</a> and pick this
-          dataset.
-        </p>
-      )}
-    </section>
+    </Modal>
   );
 }
 
-function RecordsTable({ records }: { records: Record<string, unknown>[] }) {
-  if (records.length === 0) {
-    return <p className="text-sm text-muted">No rows.</p>;
-  }
+function RecordsTable({
+  records,
+  startIndex,
+}: {
+  records: Record<string, unknown>[];
+  startIndex: number;
+}) {
   const columns = Object.keys(records[0]);
   return (
-    <table className="w-full min-w-max border-collapse text-xs">
+    <table className="grid-table min-w-max">
       <thead>
-        <tr className="border-b border-hairline text-left text-muted">
+        <tr>
+          {/* Sticky over an opaque --sunk header, so the column names stay
+              readable however far down a long role you scroll. */}
+          <th scope="col" className="sticky top-0 z-10 text-right">
+            #
+          </th>
           {columns.map((col) => (
-            <th key={col} scope="col" className="whitespace-nowrap py-2 pr-4 font-normal">
+            <th key={col} scope="col" className="sticky top-0 z-10">
               {col}
             </th>
           ))}
@@ -518,9 +830,10 @@ function RecordsTable({ records }: { records: Record<string, unknown>[] }) {
       </thead>
       <tbody>
         {records.map((record, i) => (
-          <tr key={i} className="border-b border-hairline">
+          <tr key={i} className="row-interactive">
+            <td className="mono text-right text-[11px] text-faint tabular">{startIndex + i + 1}</td>
             {columns.map((col) => (
-              <td key={col} className="whitespace-nowrap py-2 pr-4 font-mono">
+              <td key={col} className="whitespace-nowrap font-mono text-xs">
                 {String(record[col] ?? "")}
               </td>
             ))}
@@ -531,18 +844,19 @@ function RecordsTable({ records }: { records: Record<string, unknown>[] }) {
   );
 }
 
+/** The mapping-confirming uploader for one role. The caller decides when it
+ *  is on screen; this only owns the file, its preview and the overrides. */
 function RoleUploader({
   datasetId,
   role,
-  label,
+  onCancel,
   onSaved,
 }: {
   datasetId: string;
   role: string;
-  label: string;
+  onCancel: () => void;
   onSaved: () => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<PreviewOut | null>(null);
   const [overrides, setOverrides] = useState<Record<string, string | null>>({});
@@ -586,71 +900,62 @@ function RoleUploader({
       setError(apiError.detail ?? "Could not save that file.");
       return;
     }
-    setOpen(false);
     setFile(null);
     setPreview(null);
     onSaved();
   }
 
-  if (!open) {
-    return (
-      <button type="button" onClick={() => setOpen(true)} className="text-xs underline">
-        {label}
-      </button>
-    );
-  }
-
   return (
-    <div className="w-full border border-hairline p-3">
+    <div className="card-flush w-full p-4">
       {!preview ? (
-        <form onSubmit={runPreview} className="flex flex-wrap items-end gap-3">
+        <form onSubmit={runPreview} className="flex flex-wrap items-center gap-3">
           <input
             type="file"
             accept=".csv,.xlsx,.pdf"
+            aria-label={`${role} file`}
             onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className="text-xs"
+            className="field field-file max-w-xs py-2 text-xs"
           />
-          <button
-            type="submit"
-            disabled={!file || busy}
-            className="border border-foreground bg-foreground px-3 py-1 text-xs font-medium text-background disabled:opacity-50"
-          >
+          <button type="submit" disabled={!file || busy} className="btn btn-primary btn-sm">
             {busy ? "Reading…" : "Preview mapping"}
           </button>
-          <button type="button" onClick={() => setOpen(false)} className="text-xs text-muted underline">
+          <button type="button" onClick={onCancel} className="btn btn-sm">
             Cancel
           </button>
         </form>
       ) : (
         <div>
-          <table className="w-full border-collapse text-xs">
-            <thead>
-              <tr className="border-b border-hairline text-left text-muted">
-                <th scope="col" className="py-1 font-normal">Column</th>
-                <th scope="col" className="py-1 font-normal">Sample</th>
-                <th scope="col" className="py-1 font-normal">Maps to</th>
-              </tr>
-            </thead>
-            <tbody>
-              {preview.headers.map((header) => (
-                <MappingRow
-                  key={header}
-                  header={header}
-                  sample={preview.sample_rows[0]?.[header] ?? ""}
-                  canonicalFields={preview.canonical_fields}
-                  value={overrides[header] ?? null}
-                  mapping={preview.mapping.find((m) => m.source_header === header)}
-                  onChange={(next) => setOverrides((prev) => ({ ...prev, [header]: next }))}
-                />
-              ))}
-            </tbody>
-          </table>
-          <div className="mt-2 flex gap-3">
+          <p className="legend mb-3">Column mapping</p>
+          <div className="overflow-x-auto">
+            <table className="grid-table">
+              <thead>
+                <tr>
+                  <th scope="col">Column</th>
+                  <th scope="col">Sample</th>
+                  <th scope="col">Maps to</th>
+                </tr>
+              </thead>
+              <tbody>
+                {preview.headers.map((header) => (
+                  <MappingRow
+                    key={header}
+                    header={header}
+                    sample={preview.sample_rows[0]?.[header] ?? ""}
+                    canonicalFields={preview.canonical_fields}
+                    value={overrides[header] ?? null}
+                    mapping={preview.mapping.find((m) => m.source_header === header)}
+                    onChange={(next) => setOverrides((prev) => ({ ...prev, [header]: next }))}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="mt-4 flex gap-2.5">
             <button
               type="button"
               onClick={confirmAndSave}
               disabled={busy}
-              className="border border-foreground bg-foreground px-3 py-1 text-xs font-medium text-background disabled:opacity-50"
+              className="btn btn-primary btn-sm"
             >
               {busy ? "Saving…" : "Save to dataset"}
             </button>
@@ -659,16 +964,20 @@ function RoleUploader({
               onClick={() => {
                 setPreview(null);
                 setFile(null);
-                setOpen(false);
+                onCancel();
               }}
-              className="text-xs text-muted underline"
+              className="btn btn-sm"
             >
               Cancel
             </button>
           </div>
         </div>
       )}
-      {error && <p role="alert" className="mt-2 text-xs text-signal">{error}</p>}
+      {error && (
+        <p role="alert" className="mt-3 text-xs text-signal">
+          {error}
+        </p>
+      )}
     </div>
   );
 }
@@ -689,23 +998,28 @@ function MappingRow({
   onChange: (next: string | null) => void;
 }) {
   return (
-    <tr className="border-b border-hairline">
-      <td className="py-1 font-mono">{header}</td>
-      <td className="py-1 font-mono text-muted">{sample}</td>
-      <td className="py-1">
-        <select
-          value={value ?? ""}
-          onChange={(e) => onChange(e.target.value || null)}
-          className="border border-hairline px-1 py-0.5 text-xs"
-        >
-          <option value="">(ignore)</option>
-          {canonicalFields.map((field) => (
-            <option key={field} value={field}>
-              {field}
-            </option>
-          ))}
-        </select>
-        {mapping && <span className="ml-2 text-[10px] text-muted">{mapping.confidence.toFixed(2)}</span>}
+    <tr>
+      <td className="font-mono text-xs">{header}</td>
+      <td className="font-mono text-xs text-muted">{sample}</td>
+      <td>
+        <div className="flex items-center gap-2">
+          <select
+            value={value ?? ""}
+            onChange={(e) => onChange(e.target.value || null)}
+            aria-label={`Canonical field for ${header}`}
+            className="field w-48 py-1.5 text-xs"
+          >
+            <option value="">(ignore)</option>
+            {canonicalFields.map((field) => (
+              <option key={field} value={field}>
+                {field}
+              </option>
+            ))}
+          </select>
+          {mapping && (
+            <span className="mono text-[10px] text-faint">{mapping.confidence.toFixed(2)}</span>
+          )}
+        </div>
       </td>
     </tr>
   );

@@ -7,9 +7,10 @@ from pydantic import BaseModel
 from ingest.signature import header_signature
 from ingest.tabular import ParsedTable
 from llm.gateway import LlmGateway
+from llm.models import BACKUP_MODEL, PRIMARY_MODEL
 from money.result import Err, Ok, Result
 
-MAPPER_MODEL = "gemini-3.5-flash-lite"
+MAPPER_MODEL = PRIMARY_MODEL
 MAPPER_SCHEMA_VERSION = "mapper-v1"
 SAMPLE_ROW_COUNT = 5
 
@@ -18,8 +19,17 @@ SourceRole = Literal["ledger", "gateway", "settlement", "bank"]
 CANONICAL_FIELDS: dict[SourceRole, list[str]] = {
     "ledger": ["id", "number", "customer", "amount", "issued_at", "ref"],
     "gateway": [
-        "id", "order_id", "invoice_ref", "gross", "fee", "tax", "net",
-        "status", "captured_at", "method", "settlement_id",
+        "id",
+        "order_id",
+        "invoice_ref",
+        "gross",
+        "fee",
+        "tax",
+        "net",
+        "status",
+        "captured_at",
+        "method",
+        "settlement_id",
     ],
     "settlement": ["id", "utr", "payout", "fees", "tax", "adjustments", "settled_at", "payment_ids"],
     "bank": ["id", "value_date", "narration", "credit", "debit", "balance"],
@@ -95,7 +105,11 @@ async def map_schema(
 
     prompt = build_prompt(role, table)
     result = await gateway.generate(
-        model=MAPPER_MODEL, prompt=prompt, response_schema=MappingResponse, user_id=user_id
+        model=MAPPER_MODEL,
+        prompt=prompt,
+        response_schema=MappingResponse,
+        user_id=user_id,
+        fallbacks=(BACKUP_MODEL,),
     )
     if isinstance(result, Err):
         return result

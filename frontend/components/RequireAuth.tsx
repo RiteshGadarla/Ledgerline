@@ -16,9 +16,10 @@ export function RequireAuth({ children }: { children: React.ReactNode }) {
 
   if (session.status !== "authenticated") {
     return (
-      <p className="p-6 text-sm text-muted" role="status">
+      <div className="flex flex-1 items-center gap-3 p-8 text-sm text-muted" role="status">
+        <span aria-hidden className="pulse-dot h-1.5 w-1.5 rounded-full bg-readout-hi" />
         {session.status === "loading" ? "Checking your session…" : "Redirecting to sign in…"}
-      </p>
+      </div>
     );
   }
 

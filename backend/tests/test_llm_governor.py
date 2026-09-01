@@ -4,6 +4,7 @@ import time
 import redis.asyncio as redis
 
 from llm.governor import DailyCounter, Governor, RpmBucket
+from llm.models import BACKUP_MODEL, PRIMARY_MODEL
 from money.result import Err, Ok
 
 
@@ -65,33 +66,33 @@ async def test_daily_counter_resets_are_isolated_per_key(redis_client: redis.Red
 async def test_user_quota_is_checked_before_the_global_bucket(redis_client: redis.Redis) -> None:
     governor = Governor(
         redis_client=redis_client,
-        rpm_limits={"gemini-3.6-flash": 100},
-        rpd_limits={"gemini-3.6-flash": 100},
+        rpm_limits={PRIMARY_MODEL: 100, BACKUP_MODEL: 100},
+        rpd_limits={PRIMARY_MODEL: 100, BACKUP_MODEL: 100},
         user_daily_quota=1,
     )
 
-    first = await governor.check_and_reserve("gemini-3.6-flash", user_id="user-1")
+    first = await governor.check_and_reserve(PRIMARY_MODEL, user_id="user-1")
     assert isinstance(first, Ok)
 
-    second = await governor.check_and_reserve("gemini-3.6-flash", user_id="user-1")
+    second = await governor.check_and_reserve(PRIMARY_MODEL, user_id="user-1")
     assert isinstance(second, Err)
     assert "quota" in second.reason
 
     # a different user is unaffected by user-1's exhausted quota
-    third = await governor.check_and_reserve("gemini-3.6-flash", user_id="user-2")
+    third = await governor.check_and_reserve(PRIMARY_MODEL, user_id="user-2")
     assert isinstance(third, Ok)
 
 
 async def test_rpd_limit_is_enforced_independently_of_rpm(redis_client: redis.Redis) -> None:
     governor = Governor(
         redis_client=redis_client,
-        rpm_limits={"gemini-3.6-flash": 1000},
-        rpd_limits={"gemini-3.6-flash": 2},
+        rpm_limits={PRIMARY_MODEL: 1000, BACKUP_MODEL: 1000},
+        rpd_limits={PRIMARY_MODEL: 2, BACKUP_MODEL: 2},
         user_daily_quota=1000,
     )
 
-    assert isinstance(await governor.check_and_reserve("gemini-3.6-flash", user_id="u1"), Ok)
-    assert isinstance(await governor.check_and_reserve("gemini-3.6-flash", user_id="u2"), Ok)
-    third = await governor.check_and_reserve("gemini-3.6-flash", user_id="u3")
+    assert isinstance(await governor.check_and_reserve(PRIMARY_MODEL, user_id="u1"), Ok)
+    assert isinstance(await governor.check_and_reserve(PRIMARY_MODEL, user_id="u2"), Ok)
+    third = await governor.check_and_reserve(PRIMARY_MODEL, user_id="u3")
     assert isinstance(third, Err)
     assert "daily request quota" in third.reason

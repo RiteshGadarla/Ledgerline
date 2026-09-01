@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date
 from difflib import SequenceMatcher
 
@@ -18,6 +18,11 @@ CONFIDENCE = {
 PAYER_SIMILARITY_THRESHOLD = 0.88
 _FEE_BAND_BPS = 300  # payment gross may differ from invoice amount by up to 3% and still be "in band"
 _DATE_WINDOW_DAYS = 5
+# How far a bank credit may sit from the settlement date it claims to be. A
+# real credit posts on the settlement date or a day or two after it; one that
+# is weeks adrift is a timing exception even when the UTR and the amount agree,
+# because those two alone cannot tell a late credit from a coincidence.
+_BANK_CREDIT_WINDOW_DAYS = 5
 _SUBSET_CANDIDATE_CAP = 8
 _SUBSET_NODE_LIMIT = 5000
 
@@ -27,12 +32,22 @@ class LinkResult:
     matched: list[tuple[str, str, list[Evidence]]]  # (left_id, right_id, evidence)
     ambiguous: list[tuple[str, list[str], ExceptionCode]]  # (left_id, tied_right_ids, code)
     unmatched: list[str]
+    # A single candidate that failed a check -- distinct from ambiguity, where
+    # the problem is too many candidates rather than one that does not hold up.
+    rejected: list[tuple[str, str, ExceptionCode]] = field(default_factory=list)
 
 
 def p1_bank_line_to_settlement(index: CorpusIndex) -> LinkResult:
-    """Narration UTR equals settlement UTR and amount equal. Confidence 1.00."""
+    """Narration UTR equals settlement UTR and amount equal. Confidence 1.00.
+
+    A unique candidate must also have landed near the settlement date. UTR plus
+    an exact amount is strong evidence, but it is not a licence to ignore a
+    credit that posted six weeks late -- that is a real reconciliation break,
+    and tying it silently would hide it.
+    """
     matched: list[tuple[str, str, list[Evidence]]] = []
     ambiguous: list[tuple[str, list[str], ExceptionCode]] = []
+    rejected: list[tuple[str, str, ExceptionCode]] = []
     unmatched: list[str] = []
 
     for settlement in index.settlements_by_id.values():
@@ -46,6 +61,10 @@ def p1_bank_line_to_settlement(index: CorpusIndex) -> LinkResult:
         ]
         if len(candidates) == 1:
             bank_line_id = candidates[0]
+            bank_line = index.bank_lines_by_id[bank_line_id]
+            if abs((bank_line.value_date - settlement.settled_at).days) > _BANK_CREDIT_WINDOW_DAYS:
+                rejected.append((settlement.id, bank_line_id, ExceptionCode.DATE_OUTSIDE_WINDOW))
+                continue
             evidence = [
                 Evidence(field="utr", value=settlement.utr, source_id=settlement.id),
                 Evidence(field="credit", value=str(settlement.payout), source_id=bank_line_id),
@@ -56,7 +75,7 @@ def p1_bank_line_to_settlement(index: CorpusIndex) -> LinkResult:
         else:
             unmatched.append(settlement.id)
 
-    return LinkResult(matched=matched, ambiguous=ambiguous, unmatched=unmatched)
+    return LinkResult(matched=matched, ambiguous=ambiguous, unmatched=unmatched, rejected=rejected)
 
 
 def p2_verify_batch_algebra(index: CorpusIndex, settlement_id: str) -> tuple[bool, Paise]:

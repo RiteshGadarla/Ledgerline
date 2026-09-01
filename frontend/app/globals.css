@@ -1,68 +1,769 @@
 @import "tailwindcss";
 
+/* ---------------------------------------------------------------------------
+   Ledgerline: the instrument system.
+
+   Light is the product's default and lives on bare `:root`. Dark is an
+   explicit opt-in, applied by the toggle as `data-theme="dark"` on <html>,
+   re-declaring the same token names, so every component keeps reading one
+   variable and nothing below this block knows which theme is on.
+
+   The rule for anything added later: no component hardcodes a colour.
+
+   Geometry: 3px radii, 1px hairlines, no drop shadows. A surface is separated
+   by a rule, not by elevation. The one hard rule closes a header.
+--------------------------------------------------------------------------- */
+
 :root {
-  --background: #ffffff;
-  --foreground: #14161a;
-  --muted: #6b7280;
-  --hairline: #e2e4e8;
-  --signal: #b3401f;
-  --signal-bg: #fbeee9;
-  --focus: #1d4ed8;
+  color-scheme: light;
+
+  /* Ground: a machined chassis behind white instrument faces. */
+  --background: #e9ecf1;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --surface-hover: #f3f5f9;
+  --sunk: #f3f5f9;
+
+  /* The bezel. Dark in BOTH themes: the rail and status strip are chrome,
+     not content, and they frame the readout the way an instrument does. */
+  --rail: #11151c;
+  --rail-line: #242b36;
+  --rail-ink: #99a3b1;
+  --rail-hi: #ffffff;
+
+  /* Ink */
+  --foreground: #10141a;
+  --muted: #57616f;
+  --faint: #8792a1;
+
+  /* Lines */
+  --hairline: #dde1e8;
+  --hairline-strong: #c2cad5;
+  --rule-ink: #c2cad5;
+  --hard: #10141a;
+
+  /* Readout: the one colour that means "interactive / ours / measured".
+     Teal rather than blue, and deliberately not green: green against the
+     risk red separates by only ΔE 5.4 under deuteranopia. */
+  --accent: #00766c;
+  --accent-bright: #00766c;
+  --accent-hover: #005f57;
+  --accent-dim: #a8d8d2;
+  --accent-glow: rgb(0 162 148 / 0.22);
+  --accent-wash: rgb(0 162 148 / 0.1);
+  --readout-hi: #00a294;
+  --on-accent: #ffffff;
+
+  /* Status */
+  --signal: #b0271f;
+  --signal-bg: #fdeae7;
+  --positive: #146a47;
+  --positive-bg: #e3f2ea;
+  --caution: #855700;
+  --caution-bg: #fbf0da;
+
+  --focus: var(--readout-hi);
+
+  --lift-1: rgb(16 20 26 / 0.025);
+  --lift-2: rgb(16 20 26 / 0.03);
+  --lift-3: rgb(0 162 148 / 0.09);
+
+  --well-shadow: inset 0 1px 2px rgb(16 20 26 / 0.05);
+  --grid-ink: rgb(16 20 26 / 0.055);
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --background: #080b10;
+  --surface: #11161e;
+  --surface-raised: #161c26;
+  --surface-hover: #0c1017;
+  --sunk: #0c1017;
+
+  --rail: #05080c;
+  --rail-line: #1b222c;
+  --rail-ink: #707c8c;
+  --rail-hi: #ffffff;
+
+  --foreground: #e6ebf2;
+  --muted: #8d99aa;
+  --faint: #64707f;
+
+  --hairline: #1d242e;
+  --hairline-strong: #2c3540;
+  --rule-ink: #2c3540;
+  --hard: #39434f;
+
+  /* On a dark ground the emphasis end is lighter, not darker. */
+  --accent: #2ee0c8;
+  --accent-bright: #2ee0c8;
+  --accent-hover: #64ecda;
+  --accent-dim: #1c4d47;
+  --accent-glow: rgb(46 224 200 / 0.26);
+  --accent-wash: rgb(46 224 200 / 0.12);
+  --readout-hi: #2ee0c8;
+  --on-accent: #04211d;
+
+  --signal: #ff7d6d;
+  --signal-bg: #2c1214;
+  --positive: #3fd493;
+  --positive-bg: #0c2a1f;
+  --caution: #f0c05a;
+  --caution-bg: #2a2109;
+
+  --lift-1: rgb(255 255 255 / 0.025);
+  --lift-2: rgb(255 255 255 / 0.035);
+  --lift-3: rgb(255 255 255 / 0.07);
+
+  --well-shadow: inset 0 1px 2px rgb(0 0 0 / 0.35);
+  --grid-ink: rgb(255 255 255 / 0.045);
 }
 
 @theme inline {
   --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-hover: var(--surface-hover);
+  --color-sunk: var(--sunk);
+  --color-rail: var(--rail);
+  --color-rail-line: var(--rail-line);
+  --color-rail-ink: var(--rail-ink);
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
+  --color-faint: var(--faint);
   --color-hairline: var(--hairline);
+  --color-hairline-strong: var(--hairline-strong);
+  --color-hard: var(--hard);
+  --color-accent: var(--accent);
+  --color-accent-bright: var(--accent-bright);
+  --color-accent-dim: var(--accent-dim);
+  --color-readout-hi: var(--readout-hi);
+  --color-lift-1: var(--lift-1);
+  --color-lift-2: var(--lift-2);
+  --color-lift-3: var(--lift-3);
   --color-signal: var(--signal);
   --color-signal-bg: var(--signal-bg);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-positive: var(--positive);
+  --color-positive-bg: var(--positive-bg);
+  --color-caution: var(--caution);
+  --color-caution-bg: var(--caution-bg);
+  --font-sans: var(--font-plex-sans);
+  --font-mono: var(--font-plex-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0b0c0e;
-    --foreground: #e7e9ec;
-    --muted: #9aa1ac;
-    --hairline: #2a2d33;
-    --signal: #e2764f;
-    --signal-bg: #2a1712;
+/* --------------------------------------------------------------------- base */
+
+/* These live in @layer base on purpose. An unlayered rule outranks every
+   layered one, so a bare `* { border-color }` would silently beat every
+   Tailwind border utility: `border-hard`, `border-signal`, `border-rail-line`
+   would all render as the default hairline instead. */
+@layer base {
+  * {
+    border-color: var(--hairline);
+  }
+
+  html {
+    background: var(--background);
+  }
+
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
   }
 }
 
-* {
-  border-color: var(--hairline);
-}
-
-body {
-  background: var(--background);
+::selection {
+  background: var(--accent-wash);
   color: var(--foreground);
-  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
-}
-
-.tabular {
-  font-variant-numeric: tabular-nums;
 }
 
 :focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
+  border-radius: 2px;
 }
 
-/* The plan's one piece of motion: new lines appearing in the run's live
-   streaming log. Nothing else in the app animates. */
+* {
+  scrollbar-color: var(--hairline-strong) transparent;
+  scrollbar-width: thin;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--hairline-strong);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--faint);
+  background-clip: content-box;
+}
+
+/* Every amount, id, UTR and hash is a measurement, always tabular. */
+.tabular,
+.mono {
+  font-variant-numeric: tabular-nums;
+}
+.mono {
+  font-family: var(--font-mono), ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Diagonal hatch: the secondary encoding on "blocked" in the cash chart, so
+   the two series stay separable without relying on hue at all (greyscale,
+   print, forced colours, and red-green colour vision). */
+.hatch {
+  background-color: var(--signal-bg);
+  background-image: repeating-linear-gradient(45deg, var(--signal) 0 1.5px, transparent 1.5px 6px);
+  border: 1px solid var(--signal);
+}
+
+/* Graph paper, used only behind the chain diagram. */
+.graph-ground {
+  background-image:
+    linear-gradient(var(--grid-ink) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-ink) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+@layer components {
+  /* ----------------------------------------------------------------- panel */
+
+  /* A panel is an instrument face: hairline frame, 3px radius, no shadow. */
+  .card,
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 3px;
+  }
+  .card-flush {
+    background: var(--sunk);
+    border: 1px solid var(--hairline);
+    border-radius: 3px;
+  }
+
+  .panel-head {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.5rem 0.75rem;
+    border-bottom: 1px solid var(--hairline);
+  }
+  /* The head tick: 2px of readout notched into the left edge. */
+  .panel-head::before {
+    content: "";
+    flex: none;
+    width: 2px;
+    height: 11px;
+    border-radius: 1px;
+    background: var(--readout-hi);
+  }
+
+  .rule {
+    height: 1px;
+    border: 0;
+    background: var(--hairline);
+  }
+
+  /* ---------------------------------------------------------------- readout */
+
+  /* The framed numeric display: corner tick, engraved legend, mono value. */
+  .readout {
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 3px;
+    padding: 0.8125rem 0.875rem 0.75rem;
+  }
+  .readout::after {
+    content: "";
+    position: absolute;
+    top: -1px;
+    left: -1px;
+    width: 9px;
+    height: 9px;
+    border-top: 1px solid var(--readout-hi);
+    border-left: 1px solid var(--readout-hi);
+    border-top-left-radius: 3px;
+  }
+  .readout-val {
+    margin-top: 0.5625rem;
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    /* The floor has to clear the longest thing a readout ever holds,
+       a full rupee amount like ₹1,18,13,517.21, inside a two-column grid cell. */
+    font-size: clamp(1.375rem, 2.3vw, 2.125rem);
+    font-weight: 500;
+    letter-spacing: -0.025em;
+    line-height: 1.05;
+  }
+  .readout-sub {
+    margin-top: 0.4375rem;
+    font-size: 0.6875rem;
+    color: var(--muted);
+  }
+
+  /* -------------------------------------------------------------------- kpi */
+
+  /* The readout's smaller sibling. Same face, a third of the presence: these
+     are read as a scannable field, not one figure at a time, so the value
+     sits at label scale rather than headline scale and the corner tick gives
+     way to a notch beside the legend. */
+  .kpi {
+    display: flex;
+    flex-direction: column;
+    background: var(--surface);
+    border: 1px solid var(--hairline);
+    border-radius: 3px;
+    padding: 0.6875rem 0.8125rem 0.75rem;
+    transition: border-color 120ms ease;
+  }
+  .kpi:hover {
+    border-color: var(--hairline-strong);
+  }
+  /* The legend carries the notch, matching a panel head's leading tick. */
+  .kpi > .legend {
+    display: flex;
+    align-items: center;
+    gap: 0.4375rem;
+  }
+  .kpi > .legend::before {
+    content: "";
+    flex: none;
+    width: 2px;
+    height: 9px;
+    border-radius: 1px;
+    background: var(--hairline-strong);
+  }
+  .kpi-val {
+    margin-top: 0.5rem;
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-variant-numeric: tabular-nums;
+    font-size: clamp(1.0625rem, 1.3vw, 1.25rem);
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    line-height: 1.1;
+  }
+  /* Pushed to the foot so notes line up across a row of uneven cards. */
+  .kpi-note {
+    margin-top: auto;
+    padding-top: 0.4375rem;
+    font-size: 0.625rem;
+    line-height: 1.45;
+    color: var(--faint);
+  }
+
+  /* A 40-step scale: lit teal for the clean share, lit red for the fault. */
+  .ticks {
+    display: flex;
+    align-items: flex-end;
+    gap: 2px;
+    height: 12px;
+    margin-top: 0.625rem;
+  }
+  .tick {
+    flex: 1 1 0;
+    height: 5px;
+    border-radius: 0.5px;
+    background: var(--hairline-strong);
+  }
+  .tick-on {
+    height: 12px;
+    background: var(--readout-hi);
+  }
+  .tick-risk {
+    height: 12px;
+    background: var(--signal);
+  }
+
+  /* Linked vs residual. The residual is drawn, never omitted. */
+  .meter {
+    display: flex;
+    height: 6px;
+    overflow: hidden;
+    border: 1px solid var(--hairline);
+    border-radius: 2px;
+    background: var(--sunk);
+  }
+  .meter-fill {
+    background: var(--readout-hi);
+  }
+  .meter-gap {
+    flex: none;
+    width: 2px;
+    background: var(--surface);
+  }
+  .meter-rest {
+    background: var(--signal);
+  }
+
+  /* ---------------------------------------------------------------- button */
+
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4375rem;
+    min-height: 34px;
+    padding: 0 0.8125rem;
+    border: 1px solid var(--hairline-strong);
+    border-radius: 3px;
+    background: var(--surface);
+    color: var(--foreground);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+      background-color 120ms ease,
+      border-color 120ms ease,
+      color 120ms ease;
+  }
+  .btn:hover:not(:disabled) {
+    border-color: var(--faint);
+    background: var(--sunk);
+  }
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .btn-primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--on-accent);
+    font-weight: 600;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--foreground);
+    border-color: var(--foreground);
+    color: var(--surface);
+  }
+
+  /* Kept for call sites that ask for a quiet or secondary button. */
+  .btn-ghost {
+    background: var(--surface);
+  }
+  .btn-quiet {
+    background: transparent;
+    border-color: transparent;
+    color: var(--muted);
+  }
+  .btn-quiet:hover:not(:disabled) {
+    background: var(--lift-2);
+    border-color: transparent;
+    color: var(--foreground);
+  }
+
+  .btn-lg {
+    min-height: 44px;
+    padding: 0 1.25rem;
+    font-size: 0.875rem;
+  }
+  .btn-sm {
+    min-height: 28px;
+    padding: 0 0.625rem;
+    font-size: 0.75rem;
+  }
+  .btn-icon {
+    width: 34px;
+    padding: 0;
+    color: var(--muted);
+  }
+  .btn-icon:hover:not(:disabled) {
+    color: var(--foreground);
+  }
+
+  /* ----------------------------------------------------------------- field */
+
+  .field,
+  .input {
+    width: 100%;
+    min-height: 40px;
+    padding: 0 0.75rem;
+    border: 1px solid var(--hairline-strong);
+    border-radius: 3px;
+    background: var(--sunk);
+    box-shadow: var(--well-shadow);
+    color: var(--foreground);
+    font-size: 0.875rem;
+    font-family: inherit;
+    transition:
+      border-color 120ms ease,
+      background-color 120ms ease;
+  }
+  .field::placeholder,
+  .input::placeholder {
+    color: var(--faint);
+  }
+  .field:focus,
+  .input:focus {
+    outline: 2px solid var(--readout-hi);
+    outline-offset: 1px;
+    border-color: var(--readout-hi);
+    background: var(--surface);
+  }
+
+  textarea.field {
+    padding: 0.5rem 0.75rem;
+    line-height: 1.5;
+  }
+
+  select.field {
+    appearance: none;
+    background-image:
+      linear-gradient(45deg, transparent 50%, var(--muted) 50%),
+      linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+    background-position:
+      calc(100% - 16px) center,
+      calc(100% - 11px) center;
+    background-size:
+      5px 5px,
+      5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 2rem;
+  }
+  select.field option {
+    background: var(--surface);
+    color: var(--foreground);
+  }
+
+  .field-file::file-selector-button {
+    margin-right: 0.75rem;
+    border: 1px solid var(--hairline-strong);
+    border-radius: 3px;
+    background: var(--surface);
+    color: var(--foreground);
+    padding: 0.3rem 0.7rem;
+    font-size: 0.75rem;
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .field-file::file-selector-button:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  /* The engraved label on an instrument. Never sentence case. */
+  .label,
+  .legend,
+  .eyebrow {
+    display: block;
+    font-size: 0.625rem;
+    font-weight: 600;
+    line-height: 1;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--faint);
+  }
+  .legend-hi {
+    color: var(--muted);
+  }
+
+  /* ----------------------------------------------------------------- table */
+
+  .grid-table,
+  .tbl {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.8125rem;
+  }
+  .grid-table thead th,
+  .tbl thead th {
+    text-align: left;
+    padding: 0.4375rem 0.75rem;
+    background: var(--sunk);
+    border-bottom: 1px solid var(--hairline);
+    font-size: 0.625rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--faint);
+    white-space: nowrap;
+  }
+  .grid-table tbody td,
+  .tbl tbody td {
+    padding: 0.5625rem 0.75rem;
+    border-bottom: 1px solid var(--hairline);
+  }
+  .grid-table tbody tr:last-child td,
+  .tbl tbody tr:last-child td {
+    border-bottom: 0;
+  }
+  .grid-table tbody tr.row-interactive {
+    cursor: pointer;
+    transition: background-color 120ms ease;
+  }
+  .grid-table tbody tr.row-interactive:hover {
+    background: var(--lift-1);
+  }
+  .grid-table tbody tr.row-selected {
+    background: var(--accent-wash);
+  }
+
+  /* ------------------------------------------------------------------ chip */
+
+  /* State, never decoration. */
+  .pill,
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.1875rem 0.4375rem;
+    border: 1px solid var(--hairline-strong);
+    border-radius: 2px;
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-size: 0.65625rem;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .chip-tied {
+    color: var(--positive);
+    border-color: var(--positive);
+    background: var(--positive-bg);
+  }
+  .chip-risk {
+    color: var(--signal);
+    border-color: var(--signal);
+    background: var(--signal-bg);
+  }
+  .chip-caution {
+    color: var(--caution);
+    border-color: var(--caution);
+    background: var(--caution-bg);
+  }
+  .chip-live {
+    color: var(--accent);
+    border-color: var(--accent);
+    background: var(--accent-wash);
+  }
+
+  .dot {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+
+  /* The Razorpay mark is navy on transparent: it reads straight onto the
+     light ground, and only needs a white plate once the ground goes dark. */
+  .brand-plate {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 3px;
+  }
+  :root[data-theme="dark"] .brand-plate {
+    background: #ffffff;
+    padding: 0.3125rem 0.5rem;
+  }
+
+  .link {
+    color: var(--accent);
+    text-decoration: none;
+    transition: color 120ms ease;
+  }
+  .link:hover {
+    color: var(--foreground);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  /* ----------------------------------------------------------- status strip */
+
+  /* A terminal line. Dark in both themes, like the rail. */
+  .strip {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    min-height: 28px;
+    padding: 0 0.875rem;
+    background: var(--rail);
+    color: var(--rail-ink);
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-size: 0.65625rem;
+    letter-spacing: 0.03em;
+  }
+  .strip-seg {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0 0.8125rem;
+  }
+  .strip-seg:first-child {
+    padding-left: 0;
+  }
+  .strip-seg + .strip-seg {
+    border-left: 1px solid var(--rail-line);
+  }
+  .strip b {
+    color: var(--rail-hi);
+    font-weight: 500;
+  }
+}
+
+/* ------------------------------------------------------------ theme toggle */
+
+/* Light is the default, so only "dark" is ever stamped on <html>. The button
+   holds both glyphs and CSS picks one: no state, no hydration mismatch. */
+:root[data-theme="dark"] .theme-icon-moon {
+  display: none;
+}
+:root:not([data-theme="dark"]) .theme-icon-sun {
+  display: none;
+}
+
+/* ------------------------------------------------------------------ motion */
+
 @keyframes log-line-in {
   from {
     opacity: 0;
+    transform: translateY(-2px);
   }
   to {
     opacity: 1;
+    transform: none;
   }
 }
 .log-line {
   animation: log-line-in 200ms ease-out;
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.rise-in {
+  animation: rise-in 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.25;
+  }
+}
+.pulse-dot {
+  animation: pulse-dot 1.5s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {

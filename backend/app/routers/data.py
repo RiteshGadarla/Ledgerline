@@ -40,6 +40,11 @@ class ValidateOut(BaseModel):
     total_rows: int
     valid_count: int
     errors: list[RowErrorOut]
+    # How many rows failed in total (errors above is capped), and what the
+    # parser had to repair to read the file at all. Both are shown to the
+    # uploader: a repair nobody is told about is indistinguishable from a bug.
+    error_count: int = 0
+    notes: list[str] = []
 
 
 def get_mapper_gateway(request: Request) -> LlmGateway:
@@ -106,4 +111,6 @@ async def validate_endpoint(
         total_rows=len(table.rows),
         valid_count=len(report.valid_records),
         errors=[RowErrorOut(row_number=e.row_number, reason=e.reason) for e in report.errors],
+        error_count=report.error_count,
+        notes=report.notes,
     )

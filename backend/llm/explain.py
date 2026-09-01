@@ -1,10 +1,11 @@
 from contracts.models import Exception_
 from llm.client import LlmResponse
 from llm.gateway import LlmGateway
+from llm.models import BACKUP_MODEL, PRIMARY_MODEL
 from llm.schemas import EXPLAIN_SCHEMA_VERSION, ExplanationResponse, cap_explanation
 from money.result import Err, Result
 
-EXPLAIN_MODEL = "gemini-3.5-flash-lite"
+EXPLAIN_MODEL = PRIMARY_MODEL
 
 
 def build_prompt(exceptions: list[Exception_]) -> str:
@@ -29,7 +30,11 @@ async def explain(
 
     prompt = build_prompt(exceptions)
     result: Result[LlmResponse] = await gateway.generate(
-        model=EXPLAIN_MODEL, prompt=prompt, response_schema=ExplanationResponse, user_id=user_id
+        model=EXPLAIN_MODEL,
+        prompt=prompt,
+        response_schema=ExplanationResponse,
+        user_id=user_id,
+        fallbacks=(BACKUP_MODEL,),
     )
     if isinstance(result, Err):
         return exceptions, 0, 0, True

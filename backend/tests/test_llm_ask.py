@@ -7,6 +7,7 @@ from db.passwords import hash_password
 from db.tenancy import complete_run, create_run, create_user
 from llm.ask import AskToolCall, AskTurn, ScriptedAskClient, _is_grounded, ask
 from llm.governor import Governor
+from llm.models import BACKUP_MODEL, PRIMARY_MODEL
 
 RESULT_JSON = json.dumps(
     {
@@ -59,8 +60,8 @@ METRICS_JSON = json.dumps(
 def _governor(redis_client: redis.Redis, quota: int = 1000) -> Governor:
     return Governor(
         redis_client=redis_client,
-        rpm_limits={"gemini-3.6-flash": quota},
-        rpd_limits={"gemini-3.6-flash": quota},
+        rpm_limits={PRIMARY_MODEL: quota, BACKUP_MODEL: quota},
+        rpd_limits={PRIMARY_MODEL: quota, BACKUP_MODEL: quota},
         user_daily_quota=quota,
     )
 

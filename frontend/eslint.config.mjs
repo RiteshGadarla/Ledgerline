@@ -6,8 +6,10 @@ import nextTs from "eslint-config-next/typescript";
 // calculation in web/ is a defect." Every amount the UI shows must already
 // be a final number handed back by the API; this rule catches the case
 // where someone reaches for +/-/*//,% on something that looks like a money
-// field instead of asking the backend for the number. lib/money.ts is the
-// one deliberate, reviewed exception (see its file comment).
+// field instead of asking the backend for the number. lib/money.ts and
+// lib/scale.ts are the two deliberate, reviewed exceptions: one formats a
+// final number for display, the other turns one into a bar height. Neither
+// derives a financial fact (see their file comments).
 const amountFieldPattern =
   "paise|amount|payout|credit|debit|residual|balance|gross|net|fee|tax|recognised|blocked|unrecognised";
 
@@ -39,7 +41,7 @@ const eslintConfig = defineConfig([
   ...nextTs,
   {
     files: ["**/*.{ts,tsx}"],
-    ignores: ["lib/api/schema.d.ts", "lib/money.ts"],
+    ignores: ["lib/api/schema.d.ts", "lib/money.ts", "lib/scale.ts"],
     ...noAmountArithmetic,
   },
   // Override default ignores of eslint-config-next.

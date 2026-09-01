@@ -23,10 +23,35 @@ def test_create_run_returns_202_and_queued_state(runs_client: TestClient) -> Non
     assert body["metrics"] is None
 
 
-def test_mutations_field_is_rejected(runs_client: TestClient) -> None:
+def test_an_unknown_mutation_is_rejected_on_the_request_that_asked_for_it(
+    runs_client: TestClient,
+) -> None:
+    """Not ten seconds later as a failed run: the client can still fix a typo
+    while it is holding the request."""
     _register(runs_client, "bob")
 
     response = runs_client.post("/runs", json={"source": "demo", "mutations": ["swap_utr"]})
+
+    assert response.status_code == 422
+    assert "swap_utr" in response.json()["detail"]
+
+
+def test_known_mutations_are_accepted_and_normalised(runs_client: TestClient) -> None:
+    _register(runs_client, "bob-mutator")
+
+    response = runs_client.post(
+        "/runs",
+        json={"source": "demo", "mutations": ["delete_bank_line", " Shift_Date:60 "]},
+    )
+
+    assert response.status_code == 202
+    assert response.json()["mutations"] == ["delete_bank_line", "shift_date:60"]
+
+
+def test_a_malformed_mutation_argument_is_rejected(runs_client: TestClient) -> None:
+    _register(runs_client, "bob-typo")
+
+    response = runs_client.post("/runs", json={"source": "demo", "mutations": ["shift_date:soon"]})
 
     assert response.status_code == 422
 

@@ -88,9 +88,7 @@ def test_settlement_rows_split_payment_ids() -> None:
         headers=["Settlement Id", "Payout", "Settled", "Payments"],
         rows=[{"Settlement Id": "STL1", "Payout": "500.00", "Settled": "03-Jan-24", "Payments": "pay_1;pay_2"}],
     )
-    mapping = _mapping(
-        {"Settlement Id": "id", "Payout": "payout", "Settled": "settled_at", "Payments": "payment_ids"}
-    )
+    mapping = _mapping({"Settlement Id": "id", "Payout": "payout", "Settled": "settled_at", "Payments": "payment_ids"})
 
     report = build_records("settlement", table, mapping)
 
@@ -105,9 +103,7 @@ def test_bank_rows_build_bank_lines() -> None:
         headers=["Line Id", "Value Date", "Narration", "Credit"],
         rows=[{"Line Id": "BNK1", "Value Date": "03-Jan-24", "Narration": "NEFT CREDIT", "Credit": "500.00"}],
     )
-    mapping = _mapping(
-        {"Line Id": "id", "Value Date": "value_date", "Narration": "narration", "Credit": "credit"}
-    )
+    mapping = _mapping({"Line Id": "id", "Value Date": "value_date", "Narration": "narration", "Credit": "credit"})
 
     report = build_records("bank", table, mapping)
 

@@ -10,7 +10,7 @@ pnpm run gen:api          # regenerates lib/api/schema.d.ts from the live backen
 pnpm run dev
 ```
 
-Requires the backend running at `LEDGERLINE_API_URL` (`.env.local`, defaults to `http://localhost:8000`) — see `backend/README.md` for bringing up Postgres/Redis/the API/the worker. `gen:api` needs the backend reachable; re-run it after any backend contract change.
+Requires the backend running at `LEDGERLINE_API_URL` (`.env.local`, defaults to `http://localhost:8000`); see `backend/README.md` for bringing up Postgres/Redis/the API/the worker. `gen:api` needs the backend reachable; re-run it after any backend contract change.
 
 ## Architecture
 
@@ -25,6 +25,6 @@ Run, Scoreboard, Chain, Exceptions, Data, Cash position, and Method, per the pla
 
 Known, documented gaps against the plan's Phase 11 verify list:
 - **No Playwright/axe/screenshot test suite yet.** Scoped down deliberately to prioritize a working, real-backend-integrated UI over test infrastructure in this pass.
-- **Bring-your-own-dataset runs aren't wired up**: `/data` previews and validates an upload but nothing is persisted as a reusable dataset (no `dataset_id` storage exists on the backend yet), so `POST /runs` with `source: "dataset"` still fails with a typed error.
+- **Demo mode has no UI entry point**: the Run form only creates `source: "dataset"` runs. The backend still supports demo runs and the run list still renders them, but there is no way to start one, which means precision, recall and false matches read as `-` on every run started from the console, since those are only measurable against a truth file.
 - **Difficulty-class filtering on the Chain surface is not implemented**: that's a synthetic-corpus-truth-file concept with no equivalent for a live run's result, so only status and pass are filterable.
-- **Mutations are not exposed in the Run form**: the backend rejects any non-empty `mutations` list outright (Phase 13 doesn't exist yet), so the control is omitted rather than shown broken.
+- **Difficulty-class filtering** remains the one Phase 11 surface item not built (see above); mutations are now exposed in the Run form and marked on every surface of a corrupted run.

@@ -42,8 +42,14 @@ def _settlement(
     id_: str, payment_ids: list[str], payout: int, utr: str | None, fees: int = 0, tax: int = 0
 ) -> Settlement:
     return Settlement(
-        id=id_, utr=utr, payout=Paise(payout), fees=Paise(fees), tax=Paise(tax),
-        adjustments=Paise(0), settled_at=date(2024, 1, 3), payment_ids=payment_ids,
+        id=id_,
+        utr=utr,
+        payout=Paise(payout),
+        fees=Paise(fees),
+        tax=Paise(tax),
+        adjustments=Paise(0),
+        settled_at=date(2024, 1, 3),
+        payment_ids=payment_ids,
     )
 
 
@@ -237,9 +243,7 @@ class TestP4SubsetSum:
         corpus = Corpus(invoices=[], payments=payments, settlements=[], bank_lines=[])
         index = build_index(corpus)
 
-        subset, exceeded = passes.p4_subset_sum(
-            ["pay_1", "pay_2", "pay_3", "pay_4"], index, Paise(10000)
-        )
+        subset, exceeded = passes.p4_subset_sum(["pay_1", "pay_2", "pay_3", "pay_4"], index, Paise(10000))
 
         assert exceeded is False
         assert subset is None

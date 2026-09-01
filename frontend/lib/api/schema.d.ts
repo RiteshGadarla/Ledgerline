@@ -372,6 +372,31 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/ask/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask Stream Endpoint
+         * @description The same answer, delivered as it is written.
+         *
+         *     Server-sent events over POST rather than EventSource, because the
+         *     question belongs in a body and not in a URL. The frame format is the
+         *     same one the run stream uses, so the Next.js proxy passes it through
+         *     untouched.
+         */
+        post: operations["ask_stream_endpoint_ask_stream_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -486,6 +511,16 @@ export interface components {
             valid_count: number;
             /** Errors */
             errors: components["schemas"]["RowErrorOut"][];
+            /**
+             * Error Count
+             * @default 0
+             */
+            error_count: number;
+            /**
+             * Notes
+             * @default []
+             */
+            notes: string[];
         };
         /** DatasetOut */
         DatasetOut: {
@@ -760,6 +795,8 @@ export interface components {
             source: string;
             /** Dataset Id */
             dataset_id: string | null;
+            /** Mutations */
+            mutations: string[] | null;
             /** State */
             state: string;
             /** Error */
@@ -801,6 +838,16 @@ export interface components {
             valid_count: number;
             /** Errors */
             errors: components["schemas"]["RowErrorOut"][];
+            /**
+             * Error Count
+             * @default 0
+             */
+            error_count: number;
+            /**
+             * Notes
+             * @default []
+             */
+            notes: string[];
         };
         /** ValidationError */
         ValidationError: {
@@ -1464,6 +1511,39 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AskResponseOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ask_stream_endpoint_ask_stream_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AskRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

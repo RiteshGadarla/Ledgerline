@@ -9,7 +9,7 @@ from money.parse import format_paise, parse_amount
 from money.result import Err, Ok
 
 
-@given(st.integers(min_value=-10**12, max_value=10**12))
+@given(st.integers(min_value=-(10**12), max_value=10**12))
 def test_round_trip_through_canonical_format(amount: int) -> None:
     result = parse_amount(format_paise(Paise(amount)))
     assert result == Ok(Paise(amount))
@@ -27,7 +27,7 @@ def test_sum_is_associative_and_commutative(a: int, b: int) -> None:
     assert ra.value + rb.value == rb.value + ra.value
 
 
-@given(st.integers(min_value=-10**15, max_value=10**15))
+@given(st.integers(min_value=-(10**15), max_value=10**15))
 def test_result_never_holds_a_float(amount: int) -> None:
     result = parse_amount(format_paise(Paise(amount)))
     assert isinstance(result, Ok)
