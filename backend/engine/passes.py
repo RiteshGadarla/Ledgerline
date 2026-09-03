@@ -7,6 +7,7 @@ from contracts.models import Evidence
 from contracts.money import Paise
 from engine.index import CorpusIndex
 from money.business_days import add_business_days
+from money.narration import canonical_utr
 
 CONFIDENCE = {
     PassId.P1: 1.00,
@@ -56,7 +57,7 @@ def p1_bank_line_to_settlement(index: CorpusIndex) -> LinkResult:
             continue
         candidates = [
             bank_line_id
-            for bank_line_id in index.bank_lines_by_utr.get(settlement.utr, [])
+            for bank_line_id in index.bank_lines_by_utr.get(canonical_utr(settlement.utr), [])
             if index.bank_lines_by_id[bank_line_id].credit == settlement.payout
         ]
         if len(candidates) == 1:
@@ -84,9 +85,7 @@ def p2_verify_batch_algebra(index: CorpusIndex, settlement_id: str) -> tuple[boo
     members = [index.payments_by_id[pid] for pid in settlement.payment_ids]
     gross_total = Paise(sum(p.gross for p in members))
     refunds_total = Paise(sum(p.gross for p in members if p.status in ("refunded", "disputed")))
-    expected_payout = Paise(
-        gross_total - settlement.fees - settlement.tax - refunds_total + settlement.adjustments
-    )
+    expected_payout = Paise(gross_total - settlement.fees - settlement.tax - refunds_total + settlement.adjustments)
     residual = Paise(settlement.payout - expected_payout)
     return residual == 0, residual
 

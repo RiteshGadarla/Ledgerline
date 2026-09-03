@@ -11,10 +11,54 @@ _RAIL_PATTERN = re.compile(r"\b(NEFT|IMPS|UPI|RTGS)\b", re.IGNORECASE)
 _WORD_PATTERN = re.compile(r"(?<!\d)[A-Za-z][A-Za-z.&]*(?!\d)")
 
 _NOISE_WORDS = {
-    "UTR", "RRN", "TO", "FROM", "BY", "VIA", "REF", "NO", "NUMBER", "PAYMENT",
-    "TRANSFER", "CREDIT", "DEBIT", "SETTLEMENT", "RAZORPAY", "NEFT", "IMPS",
-    "UPI", "RTGS", "TXN", "ID", "FOR", "AND", "THE", "INV", "PAY", "ORDER",
+    "UTR",
+    "RRN",
+    "TO",
+    "FROM",
+    "BY",
+    "VIA",
+    "REF",
+    "NO",
+    "NUMBER",
+    "PAYMENT",
+    "TRANSFER",
+    "CREDIT",
+    "DEBIT",
+    "SETTLEMENT",
+    "RAZORPAY",
+    "NEFT",
+    "IMPS",
+    "UPI",
+    "RTGS",
+    "TXN",
+    "ID",
+    "FOR",
+    "AND",
+    "THE",
+    "INV",
+    "PAY",
+    "ORDER",
 }
+
+
+# A UTR is written one way in a narration and another in a column of its own:
+# "...UTR 5988 06645..." against a settlement export's plain "UTR598806645".
+# The extractor above already drops the label when it reads a narration, so a
+# value that arrives with the label still attached has to be put in the same
+# form before the two can be compared at all.
+_UTR_LABEL = re.compile(r"^(?:UTR|RRN)\s*(?:NO\.?|NUMBER|#)?\s*[:\-]?\s*", re.IGNORECASE)
+
+
+def canonical_utr(value: str) -> str:
+    """The comparable form of a reference: no label, no spacing, upper case.
+
+    Applied to both sides of every UTR comparison. A generated corpus writes
+    the bare token and never notices; a real settlement export writes
+    "UTR598806645" in the column and its bank statement writes
+    "NEFT CR RAZORPAY SETTLEMENT UTR598806645", and without this they are two
+    different strings that never tie out.
+    """
+    return _UTR_LABEL.sub("", " ".join(value.split())).replace(" ", "").upper()
 
 
 @dataclass(frozen=True)

@@ -73,13 +73,20 @@ def _date(fields: dict[str, str], key: str):  # type: ignore[no-untyped-def]
 
 
 def _build_invoice(fields: dict[str, str]) -> Invoice:
+    # A payment cites an invoice by whatever token the ledger prints, and an
+    # exported ledger usually prints exactly one. So `ref` falls back to the
+    # id for the same reason `number` does: with a single identifier column,
+    # the id *is* the reference a gateway export quotes, and leaving ref empty
+    # would break the invoice-to-payment link on a file that is perfectly
+    # reconcilable.
+    identifier = fields["id"]
     return Invoice(
-        id=fields["id"],
-        number=fields.get("number", fields["id"]),
+        id=identifier,
+        number=fields.get("number", identifier),
         customer=fields.get("customer", ""),
         amount=_amount(fields, "amount"),
         issued_at=_date(fields, "issued_at"),
-        ref=fields.get("ref") or None,
+        ref=fields.get("ref") or identifier,
     )
 
 

@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 
 from contracts.corpus import Corpus
 from contracts.models import BankLine, Invoice, Payment, Settlement
+from money.narration import canonical_utr
 from money.narration import extract as extract_narration
 
 
@@ -25,7 +26,7 @@ def build_index(corpus: Corpus) -> CorpusIndex:
     bank_lines_by_utr: dict[str, list[str]] = defaultdict(list)
     for bank_line in corpus.bank_lines:
         for utr in extract_narration(bank_line.narration).utrs:
-            bank_lines_by_utr[utr].append(bank_line.id)
+            bank_lines_by_utr[canonical_utr(utr)].append(bank_line.id)
 
     return CorpusIndex(
         invoices_by_id={i.id: i for i in corpus.invoices},

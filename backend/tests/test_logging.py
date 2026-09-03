@@ -6,6 +6,7 @@ import logging
 from collections.abc import Iterator
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -35,13 +36,14 @@ def log_dir(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
         get_settings.cache_clear()
 
 
-def _formatted(record_kwargs: dict[str, object]) -> dict[str, object]:
+def _formatted(record_kwargs: dict[str, object]) -> dict[str, Any]:
     record = logging.LogRecord(
         name="ledgerline.test", level=logging.INFO, pathname=__file__, lineno=1, msg="hello", args=(), exc_info=None
     )
     for key, value in record_kwargs.items():
         setattr(record, key, value)
-    return json.loads(JsonFormatter().format(record))
+    payload: dict[str, Any] = json.loads(JsonFormatter().format(record))
+    return payload
 
 
 def test_every_line_is_json_carrying_a_timestamp_level_and_logger() -> None:

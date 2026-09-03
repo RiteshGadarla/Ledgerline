@@ -161,9 +161,7 @@ def _read_csv(content: bytes, notes: list[str]) -> list[list[str]]:
 
 
 def _read_xlsx(content: bytes) -> list[list[str]]:
-    frame: Any = pl.read_excel(
-        io.BytesIO(content), engine="calamine", infer_schema_length=0, has_header=False
-    )
+    frame: Any = pl.read_excel(io.BytesIO(content), engine="calamine", infer_schema_length=0, has_header=False)
     return [["" if cell is None else str(cell) for cell in row] for row in frame.iter_rows()]
 
 
@@ -319,17 +317,13 @@ def _shape(grid: list[list[str]], filename: str, notes: list[str]) -> Result[Par
     return Ok(ParsedTable(headers=headers, rows=rows, notes=notes))
 
 
-def _drop_empty_columns(
-    headers: list[str], rows: list[dict[str, str]]
-) -> tuple[list[str], list[dict[str, str]], int]:
+def _drop_empty_columns(headers: list[str], rows: list[dict[str, str]]) -> tuple[list[str], list[dict[str, str]], int]:
     """An unnamed column that is empty all the way down is an export artefact
     -- a spacer, or the spreadsheet's own row index. A named empty column is
     kept: the uploader may still want to map it, and its absence would be a
     surprise."""
     droppable = [
-        header
-        for header in headers
-        if header.startswith("column_") and all(not row[header].strip() for row in rows)
+        header for header in headers if header.startswith("column_") and all(not row[header].strip() for row in rows)
     ]
     if not droppable:
         return headers, rows, 0

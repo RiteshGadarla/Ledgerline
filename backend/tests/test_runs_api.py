@@ -1,5 +1,6 @@
 import json
-from typing import Any
+from collections.abc import Awaitable
+from typing import Any, cast
 
 import redis.asyncio as redis
 from fastapi.testclient import TestClient
@@ -172,7 +173,7 @@ async def test_stream_replays_the_whole_trace_to_a_client_that_connects_late(
         {"state": "complete", "at": "2026-09-01T10:00:04Z"},
     ]
     for event in traced:
-        await redis_client.rpush(f"run:{run_id}:trace", json.dumps(event))
+        await cast("Awaitable[int]", redis_client.rpush(f"run:{run_id}:trace", json.dumps(event)))
 
     with runs_client.stream("GET", f"/runs/{run_id}/stream") as response:
         replayed = _sse_events(response)
@@ -196,7 +197,10 @@ async def test_a_state_already_replayed_is_not_sent_twice(
     async with db_session_factory() as db:
         await transition_run_state(db, run_id, "complete")
 
-    await redis_client.rpush(f"run:{run_id}:trace", json.dumps({"state": "complete", "at": "2026-09-01T10:00:00Z"}))
+    await cast(
+        "Awaitable[int]",
+        redis_client.rpush(f"run:{run_id}:trace", json.dumps({"state": "complete", "at": "2026-09-01T10:00:00Z"})),
+    )
 
     with runs_client.stream("GET", f"/runs/{run_id}/stream") as response:
         events = _sse_events(response)

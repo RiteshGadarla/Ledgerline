@@ -4,6 +4,7 @@ from typing import Literal
 import redis.asyncio as redis
 from pydantic import BaseModel
 
+from ingest.headers import claimed_fields, deterministic_mapping
 from ingest.signature import header_signature
 from ingest.tabular import ParsedTable
 from llm.gateway import LlmGateway
@@ -63,7 +64,10 @@ class MappingCache:
     ttl_seconds: int = 365 * 24 * 3600
 
     def _key(self, role: SourceRole, signature: str) -> str:
-        return f"mapping:{role}:{signature}"
+        # The version is in the key on purpose: these entries live for a
+        # year, and an answer produced by an older mapper must not outlive
+        # the logic that produced it.
+        return f"mapping:{MAPPER_SCHEMA_VERSION}:{role}:{signature}"
 
     async def get(self, role: SourceRole, signature: str) -> MappingResponse | None:
         raw = await self.redis_client.get(self._key(role, signature))
@@ -75,15 +79,18 @@ class MappingCache:
         await self.redis_client.set(self._key(role, signature), mapping.model_dump_json(), ex=self.ttl_seconds)
 
 
-def build_prompt(role: SourceRole, table: ParsedTable) -> str:
+def build_prompt(
+    role: SourceRole, table: ParsedTable, unresolved: list[str] | None = None, taken: set[str] | None = None
+) -> str:
+    headers = unresolved if unresolved is not None else table.headers
+    available = [f for f in CANONICAL_FIELDS[role] if f not in (taken or set())]
     lines = [
-        f"Map these uploaded column headers to the canonical '{role}' schema fields: "
-        f"{', '.join(CANONICAL_FIELDS[role])}.",
-        f"Headers: {', '.join(table.headers)}",
+        f"Map these uploaded column headers to the canonical '{role}' schema fields: {', '.join(available)}.",
+        f"Headers: {', '.join(headers)}",
         "Sample rows:",
     ]
     for row in table.rows[:SAMPLE_ROW_COUNT]:
-        lines.append(str({header: row.get(header, "") for header in table.headers}))
+        lines.append(str({header: row.get(header, "") for header in headers}))
     lines.append(
         "Return JSON matching the schema: one entry per header, canonical_field null if none fits, "
         "with a confidence in [0, 1]."
@@ -103,17 +110,51 @@ async def map_schema(
     if cached is not None:
         return Ok(cached)
 
-    prompt = build_prompt(role, table)
-    result = await gateway.generate(
-        model=MAPPER_MODEL,
-        prompt=prompt,
-        response_schema=MappingResponse,
-        user_id=user_id,
-        fallbacks=(BACKUP_MODEL,),
-    )
-    if isinstance(result, Err):
-        return result
+    # What the table already knows is not a question for the model. Most
+    # uploads resolve here completely, which costs nothing and cannot be
+    # wrong in the way a guess can.
+    resolved = deterministic_mapping(role, table.headers)
+    taken = claimed_fields(resolved)
+    unresolved = [header for header in table.headers if header not in resolved]
 
-    mapping = MappingResponse.model_validate_json(result.value.raw_json)
+    fields = [
+        FieldMapping(source_header=header, canonical_field=field, confidence=1.0) for header, field in resolved.items()
+    ]
+
+    if unresolved:
+        prompt = build_prompt(role, table, unresolved=unresolved, taken=taken)
+        result = await gateway.generate(
+            model=MAPPER_MODEL,
+            prompt=prompt,
+            response_schema=MappingResponse,
+            user_id=user_id,
+            fallbacks=(BACKUP_MODEL,),
+        )
+        if isinstance(result, Err):
+            return result
+        proposed = MappingResponse.model_validate_json(result.value.raw_json)
+        for field_mapping in proposed.fields:
+            if field_mapping.source_header not in unresolved:
+                continue  # the model answered about a column it was not asked about
+            # A proposal that lands on a field the table already resolved is
+            # dropped, not merged: the deterministic answer is the better one,
+            # and two headers cannot both be the payout.
+            if field_mapping.canonical_field in taken:
+                fields.append(
+                    FieldMapping(source_header=field_mapping.source_header, canonical_field=None, confidence=0.0)
+                )
+                continue
+            if field_mapping.canonical_field is not None:
+                taken.add(field_mapping.canonical_field)
+            fields.append(field_mapping)
+
+    # Back into the file's own column order, so the confirmation table the
+    # uploader sees reads like the file they uploaded.
+    by_header = {f.source_header: f for f in fields}
+    ordered = [
+        by_header.get(header, FieldMapping(source_header=header, canonical_field=None, confidence=0.0))
+        for header in table.headers
+    ]
+    mapping = MappingResponse(fields=ordered)
     await cache.set(role, signature, mapping)
     return Ok(mapping)
