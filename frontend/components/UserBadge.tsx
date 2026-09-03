@@ -18,11 +18,11 @@ export function UserBadge() {
     <span className="flex items-center gap-2">
       <span
         aria-hidden
-        className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[3px] bg-accent font-mono text-[11px] font-semibold uppercase text-[color:var(--on-accent)]"
+        className="grid h-[26px] w-[26px] shrink-0 place-items-center rounded-[3px] bg-accent font-mono text-[12.5px] font-semibold uppercase text-[color:var(--on-accent)]"
       >
         {session.user.username.slice(0, 2)}
       </span>
-      <span className="max-w-[16ch] truncate text-[13px] font-medium">{session.user.username}</span>
+      <span className="max-w-[16ch] truncate text-[14.5px] font-medium">{session.user.username}</span>
     </span>
   );
 }

@@ -31,7 +31,12 @@ async function proxy(request: NextRequest): Promise<Response> {
   responseHeaders.delete("content-length");
   responseHeaders.delete("content-encoding");
 
-  return new Response(upstream.body, {
+  // 304 (and 204) carry no representation at all, and the fetch spec refuses
+  // to build a Response with a body for either. The conditional-GET path in
+  // lib/api/client.ts depends on those statuses reaching the browser intact.
+  const bodyless = upstream.status === 304 || upstream.status === 204;
+
+  return new Response(bodyless ? null : upstream.body, {
     status: upstream.status,
     statusText: upstream.statusText,
     headers: responseHeaders,

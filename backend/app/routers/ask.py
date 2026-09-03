@@ -57,11 +57,18 @@ async def ask_endpoint(
     client: AskClient = Depends(get_ask_client),
     governor: Governor = Depends(get_ask_governor),
 ) -> AskResponseOut:
+    """Answers a question about a run, grounded in that run's data. `degraded`
+    is true when no model could be reached (quota exhausted or all attempts
+    failed) and a fallback answer was returned instead."""
     answer = await ask(payload.question, payload.run_id, user.id, db, client, governor)
     return AskResponseOut(answer=answer.text, degraded=answer.degraded)
 
 
-@router.post("/stream")
+@router.post(
+    "/stream",
+    response_class=StreamingResponse,
+    response_description="text/event-stream of {type, ...} frames; render only the final 'done' event's answer.",
+)
 async def ask_stream_endpoint(
     payload: AskRequest,
     user: UserRecord = Depends(get_current_user),

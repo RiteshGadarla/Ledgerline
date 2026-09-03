@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { CreditLine } from "@/components/Credit";
 import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
@@ -33,12 +34,12 @@ export function AuthLayout({ children }: { children: React.ReactNode }) {
     <div className="grid min-h-screen lg:[grid-template-columns:minmax(0,0.85fr)_minmax(0,1.15fr)]">
       <aside className="hidden flex-col bg-rail p-[clamp(1.75rem,3vw,2.875rem)] text-white lg:flex">
         <Link href="/" className="inline-flex items-center gap-2.5" aria-label="Ledgerline home">
-          <Logo size={23} className="text-white" />
-          <span className="text-[15px] font-semibold tracking-[-0.01em]">Ledgerline</span>
+          <Logo size={25} className="text-white" />
+          <span className="text-[16.5px] font-semibold tracking-[-0.01em]">Ledgerline</span>
         </Link>
 
         <div className="mt-auto">
-          <p className="mono text-[10.5px] tracking-[0.16em] text-[color:var(--readout-hi)]">
+          <p className="mono text-[12px] tracking-[0.16em] text-[color:var(--readout-hi)]">
             THE GUARANTEE
           </p>
           <h2 className="mt-4 max-w-[20ch] text-[clamp(1.3rem,1.9vw,1.75rem)] font-semibold leading-[1.2] tracking-[-0.025em]">
@@ -48,23 +49,26 @@ export function AuthLayout({ children }: { children: React.ReactNode }) {
           <dl className="mt-6 border-t border-rail-line">
             {PROOF.map((item) => (
               <div key={item.k} className="flex items-baseline gap-3.5 border-b border-rail-line py-3">
-                <dt className="mono w-24 shrink-0 text-[10px] tracking-[0.12em] text-rail-ink">
+                <dt className="mono w-24 shrink-0 text-[11.5px] tracking-[0.12em] text-rail-ink">
                   {item.k}
                 </dt>
-                <dd className="text-[12.5px] leading-snug text-[#c8d1dc]">{item.v}</dd>
+                <dd className="text-[14px] leading-snug text-[#c8d1dc]">{item.v}</dd>
               </div>
             ))}
           </dl>
 
-          <p className="mono mt-6 whitespace-pre-line text-[10.5px] leading-relaxed text-rail-ink">
+          <p className="mono mt-6 whitespace-pre-line text-[12px] leading-relaxed text-rail-ink">
             {TRACE}
           </p>
         </div>
       </aside>
 
-      <div className="relative flex items-center justify-center bg-surface p-[clamp(1.5rem,3vw,3rem)]">
+      <div className="relative flex flex-col items-center justify-center gap-8 bg-surface p-[clamp(1.5rem,3vw,3rem)]">
         <ThemeToggle className="absolute right-5 top-5" />
         {children}
+        {/* These two screens draw no status strip, so the credit the rest of
+            the app carries along its bottom line runs as text here instead. */}
+        <CreditLine className="text-center" />
       </div>
     </div>
   );

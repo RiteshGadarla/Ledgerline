@@ -3,12 +3,12 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { RunProgress, type RunEvent } from "@/components/RunProgress";
 import { StatusBadge } from "@/components/StatusBadge";
 import { Stage } from "@/components/Surface";
 import { StatusStrip } from "@/components/StatusStrip";
-import { useRun } from "@/lib/useRun";
-
-type StreamEvent = { state: string; error?: string | null };
+import { completedDuration, formatElapsed, runStartedAt, useNow } from "@/lib/useElapsed";
+import { refreshRun, useRun } from "@/lib/useRun";
 
 const TABS = [
   { slug: "scoreboard", label: "Scoreboard" },
@@ -23,7 +23,7 @@ function formatRate(rate: number): string {
 
 export function RunShell({ runId, children }: { runId: string; children: React.ReactNode }) {
   const pathname = usePathname();
-  const [log, setLog] = useState<StreamEvent[]>([]);
+  const [log, setLog] = useState<RunEvent[]>([]);
   const run = useRun(runId);
 
   useEffect(() => {
@@ -31,8 +31,29 @@ export function RunShell({ runId, children }: { runId: string; children: React.R
     // proxy at app/api/[...path]/route.ts forwards it to the backend.
     const source = new EventSource(`/api/runs/${runId}/stream`);
     source.onmessage = (event) => {
-      const payload = JSON.parse(event.data) as StreamEvent;
-      setLog((prev) => [...prev, payload]);
+      const payload = JSON.parse(event.data) as {
+        state: string;
+        error?: string | null;
+        at?: string | null;
+      };
+      // The worker's own timestamp where there is one -- including on the
+      // transitions replayed to a client that connected after they happened.
+      // Arrival time is the fallback, and the only frame available for an
+      // event that carries none.
+      const serverAt = payload.at ? Date.parse(payload.at) : NaN;
+      setLog((prev) => [
+        ...prev,
+        {
+          state: payload.state,
+          error: payload.error,
+          serverAt: Number.isNaN(serverAt) ? null : serverAt,
+          clientAt: Date.now(),
+        },
+      ]);
+      // The stream is the fast path for state; the row behind it carries the
+      // metrics and the forecast, so a state change is worth a read now
+      // rather than at the poller's next turn.
+      refreshRun(runId);
       if (payload.state === "complete" || payload.state === "failed") {
         source.close();
       }
@@ -45,6 +66,22 @@ export function RunShell({ runId, children }: { runId: string; children: React.R
   const state = latest?.state ?? run?.state ?? null;
   const isTerminal = state === "complete" || state === "failed";
   const metrics = run?.metrics ?? null;
+
+  // The clock is anchored to when the API accepted the run, so it survives a
+  // reload and counts the time the job spent queued -- and falls back to this
+  // mount if the browser's own clock makes that reading impossible.
+  const now = useNow(!isTerminal);
+  const [mountedAt] = useState(() => Date.now());
+  const startedAt = runStartedAt(run?.created_at, now, mountedAt);
+  // The same instant in the server's frame, for differencing against the
+  // worker's transition timestamps.
+  const serverStart = run?.created_at ? Date.parse(run.created_at) : NaN;
+  // Once a run is over, its duration is the distance between two of the
+  // server's own timestamps. Measuring a finished run against the browser
+  // clock would keep counting long after it stopped.
+  const finalDuration = completedDuration(run?.created_at, run?.updated_at);
+  const elapsed =
+    isTerminal && finalDuration !== null ? finalDuration : Math.max(0, now - startedAt);
 
   // Every value here is read straight off the API's metrics object; the
   // strip formats, it never derives.
@@ -59,6 +96,11 @@ export function RunShell({ runId, children }: { runId: string; children: React.R
             : "var(--readout-hi)",
     },
   ];
+  if (!isTerminal) {
+    strip.push({ label: "ELAPSED", value: formatElapsed(elapsed) });
+  } else if (finalDuration !== null) {
+    strip.push({ label: "TOOK", value: formatElapsed(finalDuration) });
+  }
   if (metrics) {
     strip.push(
       { label: "ASSIST", value: formatRate(metrics.assist_rate) },
@@ -78,7 +120,7 @@ export function RunShell({ runId, children }: { runId: string; children: React.R
           <span aria-hidden className="text-faint">
             /
           </span>
-          <span className="mono text-[13px] font-medium">{runId.slice(0, 8)}</span>
+          <span className="mono text-[14.5px] font-medium">{runId.slice(0, 8)}</span>
           {state && <StatusBadge state={state} />}
           {/* Carried on every surface of a sabotaged run, so no figure here is
               ever read as though it came from clean books. */}
@@ -90,14 +132,14 @@ export function RunShell({ runId, children }: { runId: string; children: React.R
         </div>
         <div className="ml-auto flex items-center gap-2">
           {metrics && (
-            <span className="mono hidden text-[11px] text-faint sm:inline">
+            <span className="mono hidden text-[12.5px] text-faint sm:inline">
               {metrics.records.toLocaleString()} rec
             </span>
           )}
           <a href={`/api/runs/${runId}/export.csv`} className="btn btn-sm">
             <svg
-              width="14"
-              height="14"
+              width="16"
+              height="16"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -129,7 +171,7 @@ export function RunShell({ runId, children }: { runId: string; children: React.R
               href={href}
               aria-current={active ? "page" : undefined}
               className={
-                "relative flex min-h-[42px] items-center gap-2 whitespace-nowrap border-r border-hairline px-4 text-[11px] font-semibold uppercase tracking-[0.1em] transition-colors " +
+                "relative flex min-h-[42px] items-center gap-2 whitespace-nowrap border-r border-hairline px-4 text-[12.5px] font-semibold uppercase tracking-[0.1em] transition-colors " +
                 (i === 0 ? "border-l " : "") +
                 (active ? "bg-surface text-foreground" : "text-muted hover:text-foreground")
               }
@@ -139,7 +181,7 @@ export function RunShell({ runId, children }: { runId: string; children: React.R
               )}
               {tab.label}
               {count !== undefined && count !== null && count > 0 && (
-                <span className="mono rounded-sm bg-signal-bg px-1.5 py-px text-[10px] tracking-normal text-signal">
+                <span className="mono rounded-sm bg-signal-bg px-1.5 py-px text-[11.5px] tracking-normal text-signal">
                   {count}
                 </span>
               )}
@@ -149,37 +191,17 @@ export function RunShell({ runId, children }: { runId: string; children: React.R
       </nav>
 
       <Stage>
-        {/* The live stream is the surface while a run is in flight. */}
-        {!isTerminal && log.length > 0 && (
-          <section className="panel border-readout-hi">
-            <div className="panel-head border-b-hairline">
-              <span className="legend legend-hi">Live</span>
-              <span className="chip chip-live ml-auto">
-                <span aria-hidden className="dot pulse-dot" />
-                {state}
-              </span>
-            </div>
-            <ol aria-live="polite" className="mono flex flex-col gap-1 p-4 text-xs">
-              {log.map((entry, index) => {
-                const current = index === log.length - 1;
-                return (
-                  <li
-                    key={index}
-                    className={
-                      "log-line flex items-center gap-2.5 " +
-                      (current ? "text-foreground" : "text-faint")
-                    }
-                  >
-                    <span aria-hidden className={current ? "text-accent" : "text-hairline-strong"}>
-                      {current ? "▸" : "·"}
-                    </span>
-                    {entry.state}
-                    {entry.error ? `: ${entry.error}` : ""}
-                  </li>
-                );
-              })}
-            </ol>
-          </section>
+        {/* While a run is in flight the pipeline itself is the surface: which
+            stage is live, what it is doing, and how long it has been going. */}
+        {(!isTerminal || state === "failed") && (
+          <RunProgress
+            events={log}
+            state={state}
+            elapsed={elapsed}
+            serverStart={Number.isNaN(serverStart) ? null : serverStart}
+            clientStart={startedAt}
+            failed={state === "failed"}
+          />
         )}
 
         {state === "failed" && (

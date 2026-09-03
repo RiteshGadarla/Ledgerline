@@ -1,9 +1,25 @@
 /**
- * A KPI card: the Readout's smaller sibling, for the supporting figures that
- * are scanned as a field rather than read one at a time. `note` is optional
- * and says what the figure means, never what it is worth.
+ * A plate of related figures, read down a column rather than across a field
+ * of cards. Grouping them is what makes them legible: eight equal cards in
+ * one row say nothing about which figures answer the same question, and a
+ * card wide enough to hold "7,983 / 7,983 ms" is mostly empty for "2".
  */
-export function Kpi({
+export function StatGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="panel flex flex-col">
+      <header className="panel-head">
+        <h3 className="legend legend-hi">{title}</h3>
+      </header>
+      <dl className="flex flex-col">{children}</dl>
+    </section>
+  );
+}
+
+/**
+ * One figure inside a StatGroup: label and value share a baseline, the note
+ * under both says what the figure means, never what it is worth.
+ */
+export function StatRow({
   label,
   value,
   note,
@@ -17,10 +33,10 @@ export function Kpi({
   const colour =
     tone === "positive" ? "text-positive" : tone === "signal" ? "text-signal" : "text-foreground";
   return (
-    <div className="kpi">
-      <span className="legend">{label}</span>
-      <p className={`kpi-val ${colour}`}>{value}</p>
-      {note && <p className="kpi-note">{note}</p>}
+    <div className="stat-row">
+      <dt className="legend">{label}</dt>
+      <dd className={`stat-row-val ${colour}`}>{value}</dd>
+      {note && <p className="stat-row-note">{note}</p>}
     </div>
   );
 }

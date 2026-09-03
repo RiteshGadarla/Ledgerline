@@ -60,15 +60,15 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
         className="inline-flex items-center gap-2.5 lg:hidden"
         aria-label="Ledgerline home"
       >
-        <Logo size={26} />
-        <span className="text-[15px] font-semibold tracking-[-0.01em]">Ledgerline</span>
+        <Logo size={28} />
+        <span className="text-[16.5px] font-semibold tracking-[-0.01em]">Ledgerline</span>
       </Link>
 
       <p className="legend mt-8 lg:mt-0">{copy.eyebrow}</p>
       <h1 className="mt-3 text-[clamp(1.55rem,2.2vw,2rem)] font-semibold leading-[1.1] tracking-[-0.03em]">
         {copy.heading}
       </h1>
-      <p className="mt-2.5 text-[13.5px] leading-relaxed text-muted">{copy.sub}</p>
+      <p className="mt-2.5 text-[15px] leading-relaxed text-muted">{copy.sub}</p>
 
       <form onSubmit={onSubmit} className="mt-7 flex flex-col gap-4" noValidate>
         <div className="flex flex-col gap-2">

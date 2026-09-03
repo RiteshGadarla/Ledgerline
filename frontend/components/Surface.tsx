@@ -30,7 +30,7 @@ export function Surface({
       <ContextBar crumb={crumb} title={title} tools={tools} />
       {band}
       <Stage>{children}</Stage>
-      {strip && <StatusStrip segments={strip} />}
+      <StatusStrip segments={strip ?? []} />
     </div>
   );
 }
@@ -71,7 +71,7 @@ export function PanelHead({ legend, note }: { legend: string; note?: React.React
   return (
     <div className="panel-head">
       <span className="legend legend-hi">{legend}</span>
-      {note && <span className="mono ml-auto text-[10.5px] text-faint">{note}</span>}
+      {note && <span className="mono ml-auto text-[12px] text-faint">{note}</span>}
     </div>
   );
 }
@@ -177,8 +177,8 @@ export function Modal({
               className="ml-auto grid h-7 w-7 place-items-center rounded-[3px] text-muted hover:bg-surface-hover hover:text-foreground"
             >
               <svg
-                width="15"
-                height="15"
+                width="17"
+                height="17"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"

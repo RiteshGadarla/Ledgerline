@@ -9,7 +9,7 @@ from engine.pipeline import match
 from engine.verifier import UsedRecordIds
 from llm.cache import ResponseCache
 from llm.client import FakeClient
-from llm.explain import explain
+from llm.explain import distinct_codes, explain
 from llm.gateway import LlmGateway
 from llm.governor import Governor
 from llm.models import BACKUP_MODEL, PRIMARY_MODEL
@@ -38,12 +38,14 @@ def _well_behaved_fixtures(candidates, exceptions_after_triage, index) -> dict[s
         )
     if exceptions_after_triage:
         from llm.explain import build_prompt as explain_prompt
+        from llm.explain import distinct_codes
 
-        items = [
-            {"exception_id": exc.id, "explanation": "Auto-generated.", "suggested_action": exc.suggested_action}
-            for exc in exceptions_after_triage
-        ]
-        fixtures[explain_prompt(exceptions_after_triage)] = json.dumps({"items": items})
+        # One item per distinct code, which is what the real call now asks
+        # for -- priming this per exception would measure a budget the
+        # pipeline no longer spends.
+        codes = distinct_codes(exceptions_after_triage)
+        items = [{"code": code, "explanation": "Auto-generated.", "suggested_action": "Investigate."} for code in codes]
+        fixtures[explain_prompt(codes)] = json.dumps({"items": items})
     return fixtures
 
 
@@ -93,10 +95,44 @@ async def _run_full_pipeline(seed: int, redis_client: redis.Redis) -> tuple[int,
 
 
 async def test_150_record_run_stays_within_llm_budget(redis_client: redis.Redis) -> None:
+    """800 tokens, not the 15k this once allowed. Explaining used to ask for
+    one item per exception and now asks for one per distinct code, which on
+    these three seeds is 21/42/51 exceptions collapsing to 4/5/4 codes. The
+    ceiling is set below what the old shape cost on the *cheapest* seed
+    (~940 tokens), so a regression to per-exception fails here rather than
+    surfacing as a run that mysteriously takes minutes.
+    """
     for seed in SEEDS:
         requests, tokens = await _run_full_pipeline(seed, redis_client)
         assert requests <= 3, f"seed={seed}: {requests} LLM requests exceeds the budget of 3"
-        assert tokens < 15_000, f"seed={seed}: {tokens} tokens exceeds the 15k budget"
+        assert tokens < 800, f"seed={seed}: {tokens} tokens exceeds the 800 budget"
+
+
+async def test_explaining_asks_once_per_code_however_many_exceptions_share_it(
+    redis_client: redis.Redis,
+) -> None:
+    """The token budget above is an estimate; this is the structural fact
+    behind it. Latency in this stage is output-token-bound and a model emits
+    those serially, so items-per-response is what decides whether the stage
+    takes seconds or minutes -- measured on a real run, 88 exceptions across
+    4 codes took 124 of the run's 137 seconds.
+    """
+    corpus, _truth = generate_corpus(1003, 150)
+    exceptions = match(corpus).exceptions
+    codes = distinct_codes(exceptions)
+    assert len(exceptions) > 4 * len(codes), "seed chosen so the collapse is worth measuring"
+
+    fixtures = _well_behaved_fixtures([], exceptions, build_index(corpus))
+    client = FakeClient(fixtures)
+    annotated, _in, _out, degraded = await explain(exceptions, _gateway(redis_client, client), user_id="u1")
+
+    assert len(client.calls) == 1
+    sent = client.calls[0][1]
+    assert sum(line in codes for line in sent.splitlines()) == len(codes)
+    assert not any(exc.id in sent for exc in exceptions), "no exception id reaches the prompt"
+    # Every exception still comes back annotated -- fewer tokens, same output.
+    assert all(exc.explanation for exc in annotated)
+    assert degraded is False
 
 
 async def test_demo_like_clean_run_issues_zero_requests(redis_client: redis.Redis) -> None:

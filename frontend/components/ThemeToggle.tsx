@@ -34,8 +34,8 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
       {/* moon, offered while light is live */}
       <svg
         className="theme-icon-moon"
-        width="15"
-        height="15"
+        width="17"
+        height="17"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"
@@ -50,8 +50,8 @@ export function ThemeToggle({ className = "" }: { className?: string }) {
       {/* sun, offered while dark is live */}
       <svg
         className="theme-icon-sun"
-        width="15"
-        height="15"
+        width="17"
+        height="17"
         viewBox="0 0 24 24"
         fill="none"
         stroke="currentColor"

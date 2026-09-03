@@ -57,7 +57,7 @@ def get_mapper_gateway(request: Request) -> LlmGateway:
 @router.post("/preview", response_model=PreviewOut)
 async def preview_endpoint(
     request: Request,
-    role: str = Form(...),
+    role: str = Form(..., description="One of 'ledger', 'gateway', 'settlement', 'bank'."),
     file: UploadFile = File(...),
     user: UserRecord = Depends(get_current_user),
     gateway: LlmGateway = Depends(get_mapper_gateway),
@@ -90,7 +90,7 @@ async def preview_endpoint(
 
 @router.post("/validate", response_model=ValidateOut)
 async def validate_endpoint(
-    role: str = Form(...),
+    role: str = Form(..., description="One of 'ledger', 'gateway', 'settlement', 'bank'."),
     mapping: str = Form(..., description="JSON-encoded list of {source_header, canonical_field, confidence}"),
     file: UploadFile = File(...),
     user: UserRecord = Depends(get_current_user),

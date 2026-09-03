@@ -12,4 +12,5 @@ class HealthStatus(BaseModel):
 
 @router.get("/health", response_model=HealthStatus)
 async def health() -> HealthStatus:
+    """Liveness probe. No auth, no dependencies -- just confirms the process is up."""
     return HealthStatus(status="ok")

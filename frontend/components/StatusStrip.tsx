@@ -1,3 +1,5 @@
+import { Credit } from "@/components/Credit";
+
 /**
  * The instrument's bottom line. Dark in both themes, monospace, segments
  * divided by hairlines; it carries the facts you want visible without
@@ -13,6 +15,7 @@ export function StatusStrip({ segments }: { segments: { label: string; value?: R
           {seg.value === undefined ? <b>{seg.label}</b> : <>{seg.label} <b>{seg.value}</b></>}
         </span>
       ))}
+      <Credit />
     </div>
   );
 }

@@ -1,14 +1,14 @@
 import csv
 import io
 import json
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable
 from datetime import datetime
-from typing import Literal
+from typing import Literal, cast
 
 from arq.connections import ArqRedis
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.arq_pool import get_arq_pool
@@ -16,6 +16,7 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.errors import NotFoundError, ValidationFailedError
 from app.redis_client import get_redis
+from app.routers.datasets import MAX_GENERATED_SIZE, MIN_GENERATED_SIZE
 from contracts.models import CashForecast, Exception_, MatchGroup, RunMetrics
 from datagen.mutations import format_mutation, parse_mutation
 from db.tenancy import (
@@ -42,9 +43,20 @@ class RunCreate(BaseModel):
     source: Literal["demo", "dataset"]
     seed: int | None = None
     dataset_id: str | None = None
-    size: int | None = None
-    mutations: list[str] | None = None
-    idempotency_key: str | None = None
+    # Same bounds a generated dataset is held to: a demo run generates its
+    # corpus the same way, so an unbounded or negative size would land the
+    # same nonsense here.
+    size: int | None = Field(default=None, ge=MIN_GENERATED_SIZE, le=MAX_GENERATED_SIZE)
+    mutations: list[str] | None = Field(
+        default=None,
+        description=(
+            "Adversarial corruptions to apply to the corpus before matching, "
+            "e.g. 'shift_date:60' or 'alter_amount:-250000'."
+        ),
+    )
+    idempotency_key: str | None = Field(
+        default=None, description="Replaying the same key returns the existing run instead of starting a new one."
+    )
 
 
 class RunOut(BaseModel):
@@ -99,6 +111,10 @@ async def create_run_endpoint(
     db: AsyncSession = Depends(get_db),
     arq_pool: ArqRedis = Depends(get_arq_pool),
 ) -> RunOut:
+    """Enqueues a reconciliation run and returns immediately with it in
+    'queued' state. Poll GET /runs/{id} or GET /runs/{id}/stream for progress.
+    Reusing an idempotency_key returns the original run instead of enqueuing a
+    second one."""
     # Normalised here rather than in the worker: a mutation the engine cannot
     # apply has to be a 422 on the request that asked for it, not a run that
     # fails ten seconds later with nothing to show for it.
@@ -143,6 +159,7 @@ async def create_run_endpoint(
 async def list_runs_endpoint(
     user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> list[RunOut]:
+    """Lists the caller's runs, newest first."""
     runs = await list_runs_for_user(db, user.id)
     return [_run_out(run) for run in runs]
 
@@ -151,6 +168,8 @@ async def list_runs_endpoint(
 async def get_run_endpoint(
     run_id: str, user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> RunOut:
+    """Fetches one run's current state, metrics and forecast (the last two are
+    null until the run completes)."""
     run = await _get_owned_run_or_404(db, run_id, user.id)
     return _run_out(run)
 
@@ -159,6 +178,7 @@ async def get_run_endpoint(
 async def get_run_result_endpoint(
     run_id: str, user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> RunResultOut:
+    """Fetches the full match result: matched groups and unmatched exceptions. 404 until the run completes."""
     run = await _get_owned_run_or_404(db, run_id, user.id)
     if run.result_json is None:
         raise NotFoundError(f"run {run_id!r} has no result yet")
@@ -170,13 +190,18 @@ def _sse_event(payload: dict[str, object]) -> bytes:
     return f"data: {json.dumps(payload)}\n\n".encode()
 
 
-@router.get("/{run_id}/stream")
+@router.get(
+    "/{run_id}/stream",
+    response_class=StreamingResponse,
+    response_description="text/event-stream of {state, error?} frames, replaying missed transitions on connect.",
+)
 async def stream_run_endpoint(
     run_id: str,
     request: Request,
     user: UserRecord = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> StreamingResponse:
+    """Streams a run's state transitions as Server-Sent Events until it reaches a terminal state."""
     await _get_owned_run_or_404(db, run_id, user.id)
     redis_client = get_redis(request)
 
@@ -184,15 +209,43 @@ async def stream_run_endpoint(
         pubsub = redis_client.pubsub()
         await pubsub.subscribe(f"run:{run_id}")
         try:
-            # Re-read after subscribing (not before): this closes the race
-            # where the job finishes between an earlier read and the
-            # subscribe call. A client that disconnects and reconnects gets
-            # the same treatment -- it just sees the row's current state,
-            # never anything the job hasn't actually reached yet.
+            # Everything below reads state only *after* subscribing, which
+            # closes the race where the job moves on between an earlier read
+            # and the subscribe call: anything published in that window is
+            # buffered on the subscription and arrives in the listen loop,
+            # and `seen` drops it if the replay already covered it. The
+            # pipeline never re-enters a state, so a state name is a sound
+            # identity to deduplicate on.
+            seen: set[str] = set()
+
+            # The trace is what a client that connected late, or reloaded
+            # part-way through, has missed: every transition so far, stamped
+            # with the moment the worker made it. Replaying it is what lets
+            # the console time the early stages, which are over in
+            # milliseconds and long gone before any browser is listening.
+            # cast: redis-py types every command as sync-or-async on the
+            # shared base class, so the async client's return needs narrowing.
+            trace = await cast("Awaitable[list[bytes]]", redis_client.lrange(f"run:{run_id}:trace", 0, -1))
+            for raw in trace:
+                payload = json.loads(raw)
+                state = payload.get("state")
+                if state in seen:
+                    continue
+                seen.add(state)
+                yield _sse_event(payload)
+            if seen & TERMINAL_STATES:
+                return
+
+            # The row is both the fallback and the backstop: it covers a run
+            # still sitting in the queue with nothing traced yet, and one
+            # whose trace has expired, and it is the source that survives
+            # Redis being flushed entirely.
             run = await get_run_for_user(db, run_id, user.id)
             if run is None:
                 return
-            yield _sse_event({"state": run.state, "error": run.error})
+            if run.state not in seen:
+                seen.add(run.state)
+                yield _sse_event({"state": run.state, "error": run.error})
             if run.state in TERMINAL_STATES:
                 return
 
@@ -200,8 +253,12 @@ async def stream_run_endpoint(
                 if message["type"] != "message":
                     continue
                 payload = json.loads(message["data"])
+                state = payload.get("state")
+                if state in seen:
+                    continue
+                seen.add(state)
                 yield _sse_event(payload)
-                if payload.get("state") in TERMINAL_STATES:
+                if state in TERMINAL_STATES:
                     break
         finally:
             await pubsub.unsubscribe(f"run:{run_id}")
@@ -214,10 +271,15 @@ async def stream_run_endpoint(
     )
 
 
-@router.get("/{run_id}/export.csv")
+@router.get(
+    "/{run_id}/export.csv",
+    response_class=StreamingResponse,
+    response_description="The run's exceptions as a CSV attachment.",
+)
 async def export_run_csv_endpoint(
     run_id: str, user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> StreamingResponse:
+    """Exports a completed run's exceptions as a downloadable CSV. 404 until the run completes."""
     run = await _get_owned_run_or_404(db, run_id, user.id)
     if run.result_json is None:
         raise NotFoundError(f"run {run_id!r} has no result yet")
@@ -284,6 +346,7 @@ async def record_exception_decision_endpoint(
 async def list_exception_decisions_endpoint(
     run_id: str, user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> list[DecisionOut]:
+    """Lists every human decision recorded against this run's exceptions."""
     records = await list_exception_decisions(db, run_id, user.id)
     if records is None:
         raise NotFoundError(f"run {run_id!r} not found")

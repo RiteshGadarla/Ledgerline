@@ -149,7 +149,7 @@ function Segmented({
               onClick={() => onChange(option)}
               aria-pressed={active}
               className={
-                "min-h-8 border-r border-hairline px-3 text-[11px] font-medium uppercase tracking-[0.06em] transition-colors last:border-r-0 " +
+                "min-h-8 border-r border-hairline px-3 text-[12.5px] font-medium uppercase tracking-[0.06em] transition-colors last:border-r-0 " +
                 (active
                   ? "bg-accent text-[color:var(--on-accent)]"
                   : "bg-surface text-muted hover:text-foreground")

@@ -63,7 +63,7 @@ export default function ExceptionsPage({ params }: { params: Promise<{ id: strin
       <div className="flex items-center gap-3">
         <span className="legend">Ordered by rupees at risk</span>
         <span aria-hidden className="h-px flex-1 bg-hairline" />
-        <span className="mono text-[11px] text-faint">
+        <span className="mono text-[12.5px] text-faint">
           {sorted.length} OPEN{decidedCount > 0 ? ` · ${decidedCount} DECIDED` : ""}
         </span>
       </div>
@@ -97,7 +97,7 @@ function ExceptionCard({
         className="flex min-h-11 w-full items-center gap-3.5 px-3.5 py-3 text-left transition-colors hover:bg-lift-1"
       >
         <span className="chip chip-risk">{exception.code}</span>
-        <span className="min-w-0 flex-1 text-[13px] leading-snug">
+        <span className="min-w-0 flex-1 text-[14.5px] leading-snug">
           {exception.explanation ?? exception.suggested_action}
         </span>
         {decision && (
@@ -105,8 +105,8 @@ function ExceptionCard({
             {decision.decision}
           </span>
         )}
-        <span className="mono text-[13px] text-signal">{formatRupees(exception.amount_at_risk)}</span>
-        <span aria-hidden className="mono w-3 text-[11px] text-faint">
+        <span className="mono text-[14.5px] text-signal">{formatRupees(exception.amount_at_risk)}</span>
+        <span aria-hidden className="mono w-3 text-[12.5px] text-faint">
           {open ? "▾" : "▸"}
         </span>
       </button>
@@ -115,18 +115,18 @@ function ExceptionCard({
         <div className="border-t border-hairline bg-sunk px-3.5 py-4">
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <Detail label="Records">
-              <span className="mono text-[11.5px] leading-relaxed">
+              <span className="mono text-[13px] leading-relaxed">
                 {exception.records.map((r) => `${r.kind}:${r.id}`).join("\n")}
               </span>
             </Detail>
             <Detail label="Passes attempted">
-              <span className="mono text-[11.5px] leading-relaxed">
+              <span className="mono text-[13px] leading-relaxed">
                 {exception.attempted.join("\n")}
               </span>
             </Detail>
             {exception.rejected_proposal && (
               <Detail label={`Rejected proposal · ${exception.rejected_proposal.proposed_by}`}>
-                <span className="mono text-[11.5px] leading-relaxed text-signal">
+                <span className="mono text-[13px] leading-relaxed text-signal">
                   failed check{"\n"}
                   {exception.rejected_proposal.failed_check}
                 </span>
@@ -137,7 +137,7 @@ function ExceptionCard({
           <hr className="rule my-3.5" />
 
           <div className="flex flex-wrap items-center gap-2.5">
-            <span className="min-w-0 flex-1 text-[12px] text-muted">
+            <span className="min-w-0 flex-1 text-[13.5px] text-muted">
               {exception.suggested_action}
             </span>
             <button
@@ -159,7 +159,7 @@ function ExceptionCard({
           </div>
 
           {decision && (
-            <p className="mt-2.5 text-[11px] text-faint">
+            <p className="mt-2.5 text-[12.5px] text-faint">
               Marked {decision.decision} at {formatTimestamp(decision.created_at)}
             </p>
           )}

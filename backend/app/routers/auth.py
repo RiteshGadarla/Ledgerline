@@ -79,6 +79,7 @@ async def _rate_limit(request: Request, scope: str) -> None:
 async def register(
     credentials: Credentials, request: Request, response: Response, db: AsyncSession = Depends(get_db)
 ) -> UserOut:
+    """Creates a user and immediately logs them in, setting the session cookie."""
     await _rate_limit(request, "register")
     _validate_credentials(credentials)
 
@@ -96,6 +97,7 @@ async def register(
 async def login(
     credentials: Credentials, request: Request, response: Response, db: AsyncSession = Depends(get_db)
 ) -> UserOut:
+    """Verifies credentials and starts a new session, setting the session cookie."""
     await _rate_limit(request, "login")
     _validate_credentials(credentials)
 
@@ -115,6 +117,7 @@ async def logout(
     user: UserRecord = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> None:
+    """Revokes the caller's current session and clears the session cookie."""
     settings = get_settings()
     session_id = request.cookies.get(settings.session_cookie_name)
     if session_id is not None:
@@ -124,4 +127,5 @@ async def logout(
 
 @router.get("/me", response_model=UserOut)
 async def me(user: UserRecord = Depends(get_current_user)) -> UserOut:
+    """Returns the user identified by the request's session cookie."""
     return UserOut(id=user.id, username=user.username)

@@ -1,1 +1,7 @@
 /personal
+/deploy_ec2.sh
+
+# Runtime logs. Each backend process writes its own rotating file under
+# LOG_DIR (see backend/app/logging_config.py); none of it belongs in git.
+logs/
+*.log

@@ -69,6 +69,23 @@ def test_generated_dataset_is_immediately_ready_with_no_raw_files(runs_client: T
     assert all(f["valid_count"] > 0 for f in body["files"])
 
 
+def test_generated_size_is_bounded(runs_client: TestClient) -> None:
+    """A size that isn't a size is refused, not quietly generated.
+
+    A negative size used to produce a corpus anyway (size -5 built five
+    invoices and six payments), and an unbounded one built and persisted the
+    whole thing inside the request -- ~106k rows and ~3s of held event loop
+    at size 50,000.
+    """
+    _register(runs_client, "size-user")
+
+    for bad_size in (-5, 0, 50_001):
+        response = runs_client.post(
+            "/datasets", json={"name": f"size {bad_size}", "source": "generated", "size": bad_size}
+        )
+        assert response.status_code == 422, f"size {bad_size} was accepted: {response.text}"
+
+
 def test_uploaded_dataset_starts_incomplete_and_becomes_ready_after_all_four_files(runs_client: TestClient) -> None:
     _register(runs_client, "upload-user")
 

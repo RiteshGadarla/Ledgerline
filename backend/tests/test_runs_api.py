@@ -1,9 +1,16 @@
 import json
+from typing import Any
 
+import redis.asyncio as redis
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from db.tenancy import complete_run
+from db.tenancy import complete_run, transition_run_state
+
+
+def _sse_events(response: Any) -> list[dict[str, Any]]:
+    """Every `data:` frame a stream sent, decoded, in order."""
+    return [json.loads(line.removeprefix("data: ")) for line in response.iter_lines() if line.startswith("data:")]
 
 
 def _register(client: TestClient, username: str) -> None:
@@ -146,6 +153,55 @@ async def test_stream_replays_terminal_state_immediately_without_a_worker(
         assert payload["state"] == "complete"
 
     assert user_id  # sanity: registration succeeded
+
+
+async def test_stream_replays_the_whole_trace_to_a_client_that_connects_late(
+    runs_client: TestClient, redis_client: redis.Redis
+) -> None:
+    """The early pipeline stages are over in milliseconds -- long before any
+    browser has finished loading the run surface, let alone opened a stream.
+    A late client must still be handed every transition the worker recorded,
+    with the worker's own timestamps, or it cannot time those stages at all."""
+    _register(runs_client, "mira")
+    run_id = runs_client.post("/runs", json={"source": "demo"}).json()["id"]
+
+    traced = [
+        {"state": "normalising", "at": "2026-09-01T10:00:00Z"},
+        {"state": "matching", "at": "2026-09-01T10:00:00.120Z"},
+        {"state": "triaging", "at": "2026-09-01T10:00:01.900Z"},
+        {"state": "complete", "at": "2026-09-01T10:00:04Z"},
+    ]
+    for event in traced:
+        await redis_client.rpush(f"run:{run_id}:trace", json.dumps(event))
+
+    with runs_client.stream("GET", f"/runs/{run_id}/stream") as response:
+        replayed = _sse_events(response)
+
+    # Replayed in order, timestamps intact, and the stream closes on the
+    # terminal state rather than waiting for a message that will never come.
+    assert replayed == traced
+
+
+async def test_a_state_already_replayed_is_not_sent_twice(
+    runs_client: TestClient,
+    redis_client: redis.Redis,
+    db_session_factory: async_sessionmaker[AsyncSession],
+) -> None:
+    """The row is read after the trace, so a run whose state the trace already
+    covered must not have it repeated -- a duplicate would read on the console
+    as the same stage having been entered twice, and the second copy would
+    arrive without the timestamp the first one carried."""
+    _register(runs_client, "otto")
+    run_id = runs_client.post("/runs", json={"source": "demo"}).json()["id"]
+    async with db_session_factory() as db:
+        await transition_run_state(db, run_id, "complete")
+
+    await redis_client.rpush(f"run:{run_id}:trace", json.dumps({"state": "complete", "at": "2026-09-01T10:00:00Z"}))
+
+    with runs_client.stream("GET", f"/runs/{run_id}/stream") as response:
+        events = _sse_events(response)
+
+    assert events == [{"state": "complete", "at": "2026-09-01T10:00:00Z"}]
 
 
 def test_list_runs_returns_only_the_caller_s_runs_most_recent_first(runs_client: TestClient) -> None:

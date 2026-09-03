@@ -79,7 +79,7 @@ const SUGGESTIONS = [
 // says so rather than looking hung.
 const PATIENCE_SECONDS = 6;
 
-function BotMark({ size = 20 }: { size?: number }) {
+function BotMark({ size = 22 }: { size?: number }) {
   return (
     <svg
       width={size}
@@ -262,7 +262,7 @@ export function Lyra() {
           (open ? "pointer-events-none scale-90 opacity-0" : "")
         }
       >
-        <BotMark size={22} />
+        <BotMark size={24} />
         <span
           aria-hidden
           className="absolute right-2.5 top-2.5 h-1.5 w-1.5 rounded-full bg-readout-hi"
@@ -293,13 +293,13 @@ export function Lyra() {
       >
         <header className="flex shrink-0 items-center gap-3 bg-rail px-4 py-3 text-white">
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[3px] bg-white/10">
-            <BotMark size={19} />
+            <BotMark size={21} />
           </span>
           <span className="min-w-0">
-            <span className="block text-[15px] font-semibold leading-tight tracking-[-0.01em]">
+            <span className="block text-[16.5px] font-semibold leading-tight tracking-[-0.01em]">
               Lyra
             </span>
-            <span className="mono block truncate text-[10px] tracking-[0.08em] text-rail-ink">
+            <span className="mono block truncate text-[11.5px] tracking-[0.08em] text-rail-ink">
               GROUNDED ON RUN {runId.slice(0, 8)}
             </span>
           </span>
@@ -309,8 +309,8 @@ export function Lyra() {
             className="ml-auto grid h-8 w-8 shrink-0 place-items-center rounded-[3px] text-rail-ink hover:bg-white/10 hover:text-white"
           >
             <svg
-              width="16"
-              height="16"
+              width="18"
+              height="18"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
@@ -329,7 +329,7 @@ export function Lyra() {
             m.from === "you" ? (
               <p
                 key={i}
-                className="ml-auto max-w-[85%] rounded-[3px] border border-hairline bg-sunk px-3 py-2 text-[13px] leading-relaxed"
+                className="ml-auto max-w-[85%] rounded-[3px] border border-hairline bg-sunk px-3 py-2 text-[14.5px] leading-relaxed"
               >
                 {m.text}
               </p>
@@ -338,7 +338,7 @@ export function Lyra() {
                 <span className="legend mb-1.5">Lyra</span>
                 <div
                   className={
-                    "border-l-2 pl-3 text-[13px] " +
+                    "border-l-2 pl-3 text-[14.5px] " +
                     (m.degraded ? "border-hairline-strong text-muted" : "border-readout-hi")
                   }
                 >
@@ -351,7 +351,7 @@ export function Lyra() {
           {draft && (
             <div className="max-w-[92%]">
               <span className="legend mb-1.5">Lyra</span>
-              <div className="border-l-2 border-readout-hi pl-3 text-[13px]">
+              <div className="border-l-2 border-readout-hi pl-3 text-[14.5px]">
                 <Markdown text={draft} />
                 <span
                   aria-hidden
@@ -362,7 +362,7 @@ export function Lyra() {
           )}
 
           {busy && !draft && (
-            <div className="flex items-center gap-2.5 text-[12px] text-muted">
+            <div className="flex items-center gap-2.5 text-[13.5px] text-muted">
               <span aria-hidden className="pulse-dot h-1.5 w-1.5 rounded-full bg-readout-hi" />
               {waited > PATIENCE_SECONDS
                 ? `Still working; the agent can take up to a minute (${waited}s)`

@@ -5,7 +5,7 @@ from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
@@ -35,6 +35,11 @@ from ingest.validate import build_records
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
 DEFAULT_GENERATED_SIZE = 150
+# The ceiling is the README's documented 5,000; the floor only has to stop a
+# size that isn't a size at all. A small corpus is a legitimate thing to ask
+# for (the test suite runs on 30) -- a negative one is not.
+MIN_GENERATED_SIZE = 1
+MAX_GENERATED_SIZE = 5_000
 
 
 class DatasetFileOut(BaseModel):
@@ -60,7 +65,11 @@ class DatasetCreate(BaseModel):
     name: str
     source: Literal["generated", "uploaded"]
     seed: int | None = None
-    size: int | None = None
+    # Bounded because the corpus is generated and persisted inside this
+    # request: a negative size silently produced a nonsense corpus rather
+    # than an error, and an unbounded one would hold the event loop for as
+    # long as it took to build (~3s and ~106k rows at size 50,000).
+    size: int | None = Field(default=None, ge=MIN_GENERATED_SIZE, le=MAX_GENERATED_SIZE)
 
 
 class RowErrorOut(BaseModel):
@@ -170,6 +179,7 @@ async def create_dataset_endpoint(
 async def list_datasets_endpoint(
     user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> list[DatasetOut]:
+    """Lists the caller's datasets, newest first."""
     datasets = await list_datasets_for_user(db, user.id)
     return [await _dataset_out(db, dataset) for dataset in datasets]
 
@@ -178,6 +188,7 @@ async def list_datasets_endpoint(
 async def get_dataset_endpoint(
     dataset_id: str, user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> DatasetOut:
+    """Fetches one dataset, including per-role file status."""
     dataset = await _get_owned_dataset_or_404(db, dataset_id, user.id)
     return await _dataset_out(db, dataset)
 
@@ -185,7 +196,7 @@ async def get_dataset_endpoint(
 @router.post("/{dataset_id}/files", response_model=DatasetFileUploadOut)
 async def upload_dataset_file_endpoint(
     dataset_id: str,
-    role: str = Form(...),
+    role: str = Form(..., description="One of 'ledger', 'gateway', 'settlement', 'bank'."),
     mapping: str = Form(..., description="JSON-encoded list of {source_header, canonical_field, confidence}"),
     file: UploadFile = File(...),
     user: UserRecord = Depends(get_current_user),
@@ -239,6 +250,7 @@ async def get_dataset_file_records_endpoint(
     user: UserRecord = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> DatasetRecordsOut:
+    """Pages through a dataset file's canonical (post-mapping) records."""
     await _get_owned_dataset_or_404(db, dataset_id, user.id)
     validated_role = require_role(role)
     files = await list_dataset_files(db, dataset_id)
@@ -257,10 +269,15 @@ async def get_dataset_file_records_endpoint(
     )
 
 
-@router.get("/{dataset_id}/files/{role}/raw")
+@router.get(
+    "/{dataset_id}/files/{role}/raw",
+    response_class=StreamingResponse,
+    response_description="The original uploaded file, byte-for-byte, as an attachment download.",
+)
 async def get_dataset_file_raw_endpoint(
     dataset_id: str, role: str, user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)
 ) -> StreamingResponse:
+    """Downloads the original file as uploaded for this role -- not the canonical records derived from it."""
     await _get_owned_dataset_or_404(db, dataset_id, user.id)
     validated_role = require_role(role)
     raw = await get_dataset_file_raw(db, dataset_id, validated_role)

@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { Credit } from "@/components/Credit";
 import { Logo } from "@/components/Logo";
 import { Ticks } from "@/components/Stat";
 import { ThemeToggle } from "@/components/ThemeToggle";
@@ -78,11 +79,11 @@ export default function LandingPage() {
           blurred glass bar floating over the content. */}
       <header className="flex min-h-[46px] flex-wrap items-center gap-x-[clamp(0.875rem,2vw,1.875rem)] gap-y-2 border-b border-rail-line bg-rail px-[clamp(1rem,2.4vw,2.5rem)] py-2">
         <Link href="/" className="flex items-center gap-2.5 text-white" aria-label="Ledgerline home">
-          <Logo size={21} className="text-white" />
-          <span className="text-[14px] font-semibold tracking-[-0.01em]">Ledgerline</span>
+          <Logo size={23} className="text-white" />
+          <span className="text-[15.5px] font-semibold tracking-[-0.01em]">Ledgerline</span>
         </Link>
 
-        <div className="mono hidden items-center text-[9.5px] tracking-[0.14em] text-rail-ink md:flex">
+        <div className="mono hidden items-center text-[11px] tracking-[0.14em] text-rail-ink md:flex">
           <span>ENGINE v0.12</span>
           <span className="ml-3.5 border-l border-rail-line pl-3.5">DETERMINISTIC</span>
           <span className="ml-3.5 border-l border-rail-line pl-3.5">VERIFIER-GATED</span>
@@ -93,7 +94,7 @@ export default function LandingPage() {
           {signedIn ? (
             <Link
               href="/run"
-              className="inline-flex min-h-[34px] items-center rounded-[3px] bg-[color:var(--readout-hi)] px-3.5 text-[13px] font-semibold text-[#04211d] hover:bg-white"
+              className="inline-flex min-h-[34px] items-center rounded-[3px] bg-[color:var(--readout-hi)] px-3.5 text-[14.5px] font-semibold text-[#04211d] hover:bg-white"
             >
               Open console
             </Link>
@@ -101,13 +102,13 @@ export default function LandingPage() {
             <>
               <Link
                 href="/login"
-                className="inline-flex min-h-[34px] items-center rounded-[3px] px-3 text-[13px] text-rail-ink hover:text-white"
+                className="inline-flex min-h-[34px] items-center rounded-[3px] px-3 text-[14.5px] text-rail-ink hover:text-white"
               >
                 Sign in
               </Link>
               <Link
                 href="/register"
-                className="inline-flex min-h-[34px] items-center rounded-[3px] bg-[color:var(--readout-hi)] px-3.5 text-[13px] font-semibold text-[#04211d] hover:bg-white"
+                className="inline-flex min-h-[34px] items-center rounded-[3px] bg-[color:var(--readout-hi)] px-3.5 text-[14.5px] font-semibold text-[#04211d] hover:bg-white"
               >
                 Create an account
               </Link>
@@ -150,7 +151,7 @@ export default function LandingPage() {
             <div className="rise-in panel overflow-hidden">
               <div className="panel-head">
                 <span className="legend legend-hi">Run</span>
-                <span className="mono text-[12px] font-medium">7f3c9a21</span>
+                <span className="mono text-[13.5px] font-medium">7f3c9a21</span>
                 <span className="chip chip-tied ml-auto">
                   <span className="dot" />
                   Complete
@@ -196,7 +197,7 @@ export default function LandingPage() {
                   className="mr-[clamp(1rem,2vw,2rem)] flex flex-col gap-1.5 border-r border-hairline pr-[clamp(1rem,2vw,2rem)] last:mr-0 last:border-r-0 last:pr-0"
                 >
                   <span className="legend">{item.k}</span>
-                  <span className={"mono text-[14px] " + item.tone}>{item.v}</span>
+                  <span className={"mono text-[15.5px] " + item.tone}>{item.v}</span>
                 </span>
               ))}
             </div>
@@ -216,12 +217,12 @@ export default function LandingPage() {
                   />
                 </span>
               </span>
-              <p className="text-[12px] leading-[1.6] text-muted">
+              <p className="text-[13.5px] leading-[1.6] text-muted">
                 <span className="block">
                   Built for the <span className="font-medium text-foreground">Razorpay Buildathon</span>
                 </span>
                 <span className="block">
-                  <span className="mono text-[11px] tracking-[0.06em]">TRACK 04</span> · AI Finance
+                  <span className="mono text-[12.5px] tracking-[0.06em]">TRACK 04</span> · AI Finance
                   Controller
                 </span>
                 <span className="block">
@@ -243,12 +244,12 @@ export default function LandingPage() {
         <div className="mx-auto w-full max-w-[1560px] px-[clamp(1rem,2.4vw,2.5rem)]">
           {/* ------------------------------------------------------ 01 chain */}
           <section className="border-t border-hard py-[clamp(2.375rem,3.8vw,3.875rem)]">
-            <p className="mono text-[10.5px] tracking-[0.18em] text-accent">01 · THE CHAIN</p>
+            <p className="mono text-[12px] tracking-[0.18em] text-accent">01 · THE CHAIN</p>
             <div className="mt-4 flex flex-wrap items-end justify-between gap-5">
               <h2 className="max-w-[20ch] text-[clamp(1.44rem,2.3vw,2.06rem)] font-semibold leading-[1.14] tracking-[-0.026em] text-balance">
                 Four sources, one story per rupee.
               </h2>
-              <p className="max-w-[42ch] text-[14.5px] leading-relaxed text-pretty text-muted">
+              <p className="max-w-[42ch] text-[16px] leading-relaxed text-pretty text-muted">
                 Reconciliation breaks where the sources disagree. Keeping all four in one chain gives
                 a break an address instead of a hunt.
               </p>
@@ -264,17 +265,17 @@ export default function LandingPage() {
                         <p className="mono mt-2 text-[1.44rem] font-medium tracking-[-0.02em]">
                           {node.count}
                         </p>
-                        <p className="mt-1.5 text-[11.5px] text-muted">{node.detail}</p>
+                        <p className="mt-1.5 text-[13px] text-muted">{node.detail}</p>
                       </div>
                     </div>
 
                     {node.tied && (
                       <div className="flex min-w-0 flex-1 flex-row items-center gap-3 px-1 py-2 md:flex-col md:justify-center md:px-[clamp(0.5rem,1vw,1rem)] md:py-0">
-                        <span className="mono text-[10px] tracking-[0.06em] text-positive">
+                        <span className="mono text-[11.5px] tracking-[0.06em] text-positive">
                           {node.tied}
                         </span>
                         <span aria-hidden className="h-px flex-1 bg-hairline-strong md:my-2 md:w-full md:flex-none" />
-                        <span className="mono text-[10px] tracking-[0.06em] text-signal">
+                        <span className="mono text-[11.5px] tracking-[0.06em] text-signal">
                           {node.broken}
                         </span>
                       </div>
@@ -287,12 +288,12 @@ export default function LandingPage() {
 
           {/* ----------------------------------------------------- 02 engine */}
           <section className="border-t border-hard py-[clamp(2.375rem,3.8vw,3.875rem)]">
-            <p className="mono text-[10.5px] tracking-[0.18em] text-accent">02 · THE ENGINE</p>
+            <p className="mono text-[12px] tracking-[0.18em] text-accent">02 · THE ENGINE</p>
             <div className="mt-4 flex flex-wrap items-end justify-between gap-5">
               <h2 className="max-w-[22ch] text-[clamp(1.44rem,2.3vw,2.06rem)] font-semibold leading-[1.14] tracking-[-0.026em] text-balance">
                 Deterministic first. Assisted only where it has to be.
               </h2>
-              <p className="max-w-[42ch] text-[14.5px] leading-relaxed text-pretty text-muted">
+              <p className="max-w-[42ch] text-[16px] leading-relaxed text-pretty text-muted">
                 Each pass is arithmetic you could check by hand. A model is brought in to triage what
                 is left over, never to decide that two records match.
               </p>
@@ -304,11 +305,11 @@ export default function LandingPage() {
                   key={pass.id}
                   className="border-l border-hairline px-[clamp(0.8125rem,1.5vw,1.5rem)] first:border-l-0 first:pl-0"
                 >
-                  <span className="mono text-[11px] font-semibold tracking-[0.1em] text-accent">
+                  <span className="mono text-[12.5px] font-semibold tracking-[0.1em] text-accent">
                     {pass.id}
                   </span>
-                  <h3 className="mt-3 text-[15px] font-semibold tracking-[-0.01em]">{pass.title}</h3>
-                  <p className="mt-2.5 text-[12.5px] leading-relaxed text-muted">{pass.body}</p>
+                  <h3 className="mt-3 text-[16.5px] font-semibold tracking-[-0.01em]">{pass.title}</h3>
+                  <p className="mt-2.5 text-[14px] leading-relaxed text-muted">{pass.body}</p>
                 </div>
               ))}
             </div>
@@ -316,13 +317,13 @@ export default function LandingPage() {
             <div className="panel mt-9 flex flex-wrap items-center gap-x-5 gap-y-4 border-l-2 border-l-readout-hi p-5">
               <div className="min-w-0 flex-1 basis-80">
                 <span className="legend legend-hi">The verifier</span>
-                <p className="mt-2 max-w-[72ch] text-[13px] leading-relaxed text-muted">
+                <p className="mt-2 max-w-[72ch] text-[14.5px] leading-relaxed text-muted">
                   Whatever proposes a match, a pass or a model, the same independent check
                   re-derives the arithmetic in integer paise before anything is written. A proposal
                   that fails becomes a typed exception carrying the check it failed.
                 </p>
               </div>
-              <pre className="mono whitespace-pre-line border-hairline text-[11px] leading-[1.9] text-muted sm:border-l sm:pl-5">
+              <pre className="mono whitespace-pre-line border-hairline text-[12.5px] leading-[1.9] text-muted sm:border-l sm:pl-5">
 {`proposal   stl_0451 ← 32 pay
 recompute  ₹3,98,760.00
 declared   ₹4,40,660.00
@@ -333,15 +334,15 @@ verdict    FAILED → exception`}
 
           {/* -------------------------------------------------- 03 guarantee */}
           <section className="border-t border-hard py-[clamp(2.375rem,3.8vw,3.875rem)]">
-            <p className="mono text-[10.5px] tracking-[0.18em] text-accent">03 · THE GUARANTEE</p>
+            <p className="mono text-[12px] tracking-[0.18em] text-accent">03 · THE GUARANTEE</p>
             <div className="mt-7 grid gap-[clamp(1.125rem,2.2vw,2.375rem)] [grid-template-columns:repeat(auto-fit,minmax(14.375rem,1fr))]">
               {PRINCIPLES.map((principle) => (
                 <div key={principle.title}>
                   <span aria-hidden className="block h-0.5 w-8 bg-readout-hi" />
-                  <h3 className="mt-4 text-[16px] font-semibold tracking-[-0.015em]">
+                  <h3 className="mt-4 text-[17.5px] font-semibold tracking-[-0.015em]">
                     {principle.title}
                   </h3>
-                  <p className="mt-2.5 text-[13px] leading-relaxed text-muted">{principle.body}</p>
+                  <p className="mt-2.5 text-[14.5px] leading-relaxed text-muted">{principle.body}</p>
                 </div>
               ))}
             </div>
@@ -352,13 +353,13 @@ verdict    FAILED → exception`}
             <div className="rounded-[3px] bg-rail p-[clamp(1.75rem,3.2vw,3.125rem)] text-white">
               <div className="flex flex-wrap items-end justify-between gap-7">
                 <div className="min-w-0 flex-1 basis-[26rem]">
-                  <p className="mono text-[10.5px] tracking-[0.18em] text-[color:var(--readout-hi)]">
+                  <p className="mono text-[12px] tracking-[0.18em] text-[color:var(--readout-hi)]">
                     START HERE
                   </p>
                   <h2 className="mt-4 max-w-[18ch] text-[clamp(1.44rem,2.3vw,2.06rem)] font-semibold leading-[1.14] tracking-[-0.026em]">
                     Your first run takes one file set.
                   </h2>
-                  <p className="mt-3.5 max-w-[52ch] text-[14.5px] leading-relaxed text-rail-ink">
+                  <p className="mt-3.5 max-w-[52ch] text-[16px] leading-relaxed text-rail-ink">
                     Upload your ledger, gateway, settlement and bank files, or generate a synthetic
                     corpus with a known truth file and score against it.
                   </p>
@@ -378,16 +379,21 @@ verdict    FAILED → exception`}
         </div>
       </main>
 
-      <div className="strip">
+      {/* This page scrolls as a document rather than sitting in the app's
+          fixed frame, so the strip is stuck to the foot of the viewport: the
+          credit stays on screen the whole way down instead of waiting at the
+          end of the last section. */}
+      <div className="strip sticky bottom-0 z-20 mt-auto">
         <span className="strip-seg">
           <b>LEDGERLINE</b>
         </span>
         <span className="strip-seg">
           Precision and recall render only against a corpus with a truth file.
         </span>
-        <span className="strip-seg ml-auto">
+        <span className="strip-seg">
           ENGINE <b>v0.12</b>
         </span>
+        <Credit />
       </div>
     </div>
   );

@@ -160,7 +160,7 @@ export function Markdown({ text, className = "" }: { text: string; className?: s
         switch (block.kind) {
           case "h":
             return (
-              <p key={i} className="text-[13.5px] font-semibold tracking-[-0.01em]">
+              <p key={i} className="text-[15px] font-semibold tracking-[-0.01em]">
                 <Spans text={block.text} />
               </p>
             );
@@ -197,7 +197,7 @@ export function Markdown({ text, className = "" }: { text: string; className?: s
             return (
               <pre
                 key={i}
-                className="mono overflow-x-auto rounded-[3px] border border-hairline bg-sunk p-2.5 text-[11.5px] leading-relaxed"
+                className="mono overflow-x-auto rounded-[3px] border border-hairline bg-sunk p-2.5 text-[13px] leading-relaxed"
               >
                 {block.text}
               </pre>

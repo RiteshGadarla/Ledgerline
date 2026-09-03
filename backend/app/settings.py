@@ -12,6 +12,13 @@ class Settings(BaseSettings):
     redis_url: str | None = None
     session_cookie_name: str = "ledgerline_session"
 
+    log_level: str = "INFO"
+    # Where each process writes its own rotating log file, relative to the
+    # working directory it was started from. Set LOG_DIR empty to log to
+    # stdout only, which is what you want behind a collector that already
+    # ships it somewhere.
+    log_dir: str = "logs"
+
 
 @lru_cache
 def get_settings() -> Settings:

@@ -150,6 +150,17 @@
   --color-caution-bg: var(--caution-bg);
   --font-sans: var(--font-plex-sans);
   --font-mono: var(--font-plex-mono);
+
+  /* Bumped a step above Tailwind's stock scale: the instrument reads small
+     at native size, so every text-* and size-* utility gets a size larger
+     across the whole app from this one place. */
+  --text-xs: 0.8125rem;
+  --text-sm: 0.9375rem;
+  --text-base: 1.0625rem;
+  --text-lg: 1.1875rem;
+  --text-xl: 1.3125rem;
+  --text-2xl: 1.5625rem;
+  --text-3xl: 1.9375rem;
 }
 
 /* --------------------------------------------------------------------- base */
@@ -297,63 +308,48 @@
     font-variant-numeric: tabular-nums;
     /* The floor has to clear the longest thing a readout ever holds,
        a full rupee amount like ₹1,18,13,517.21, inside a two-column grid cell. */
-    font-size: clamp(1.375rem, 2.3vw, 2.125rem);
+    font-size: clamp(1.4375rem, 2.35vw, 2.1875rem);
     font-weight: 500;
     letter-spacing: -0.025em;
     line-height: 1.05;
   }
   .readout-sub {
     margin-top: 0.4375rem;
-    font-size: 0.6875rem;
+    font-size: 0.75rem;
     color: var(--muted);
   }
 
-  /* -------------------------------------------------------------------- kpi */
+  /* --------------------------------------------------------------- stat row */
 
-  /* The readout's smaller sibling. Same face, a third of the presence: these
-     are read as a scannable field, not one figure at a time, so the value
-     sits at label scale rather than headline scale and the corner tick gives
-     way to a notch beside the legend. */
-  .kpi {
-    display: flex;
-    flex-direction: column;
-    background: var(--surface);
-    border: 1px solid var(--hairline);
-    border-radius: 3px;
-    padding: 0.6875rem 0.8125rem 0.75rem;
-    transition: border-color 120ms ease;
+  /* The supporting figures, grouped onto plates and read down a column. A
+     field of equal cards forces every figure to the width of the longest one
+     and leaves the short ones hollow; a row sizes itself to what it holds,
+     and the hairline between rows does the separating a card border used to.
+     Label and value share a baseline; the note sits under both. */
+  .stat-row {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: baseline;
+    gap: 0.3125rem 0.875rem;
+    padding: 0.625rem 0.8125rem 0.6875rem;
+    border-top: 1px solid var(--hairline);
   }
-  .kpi:hover {
-    border-color: var(--hairline-strong);
+  .stat-row:first-child {
+    border-top: 0;
   }
-  /* The legend carries the notch, matching a panel head's leading tick. */
-  .kpi > .legend {
-    display: flex;
-    align-items: center;
-    gap: 0.4375rem;
-  }
-  .kpi > .legend::before {
-    content: "";
-    flex: none;
-    width: 2px;
-    height: 9px;
-    border-radius: 1px;
-    background: var(--hairline-strong);
-  }
-  .kpi-val {
-    margin-top: 0.5rem;
+  .stat-row-val {
     font-family: var(--font-mono), ui-monospace, monospace;
     font-variant-numeric: tabular-nums;
-    font-size: clamp(1.0625rem, 1.3vw, 1.25rem);
+    font-size: 0.9375rem;
     font-weight: 500;
-    letter-spacing: -0.02em;
-    line-height: 1.1;
+    letter-spacing: -0.01em;
+    line-height: 1.15;
+    text-align: right;
+    white-space: nowrap;
   }
-  /* Pushed to the foot so notes line up across a row of uneven cards. */
-  .kpi-note {
-    margin-top: auto;
-    padding-top: 0.4375rem;
-    font-size: 0.625rem;
+  .stat-row-note {
+    grid-column: 1 / -1;
+    font-size: 0.6875rem;
     line-height: 1.45;
     color: var(--faint);
   }
@@ -402,6 +398,37 @@
     background: var(--signal);
   }
 
+  /* -------------------------------------------------------- progress rail */
+
+  /* One segment per pipeline stage while a run is in flight. Finished stages
+     are lit, the live one carries a sweep so a slow stage still reads as
+     moving rather than stuck, and the stages still to come stay unlit -- the
+     same "draw the residual" rule the meter follows. */
+  .stage-seg {
+    position: relative;
+    flex: 1 1 0;
+    height: 4px;
+    border-radius: 1px;
+    background: var(--hairline-strong);
+    overflow: hidden;
+  }
+  .stage-seg-done {
+    background: var(--readout-hi);
+  }
+  .stage-seg-failed {
+    background: var(--signal);
+  }
+  .stage-seg-live {
+    background: var(--accent-dim);
+  }
+  .stage-seg-live::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(90deg, transparent, var(--readout-hi), transparent);
+    animation: stage-sweep 1.3s ease-in-out infinite;
+  }
+
   /* ---------------------------------------------------------------- button */
 
   .btn {
@@ -415,7 +442,7 @@
     border-radius: 3px;
     background: var(--surface);
     color: var(--foreground);
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
     font-weight: 500;
     line-height: 1;
     white-space: nowrap;
@@ -464,12 +491,12 @@
   .btn-lg {
     min-height: 44px;
     padding: 0 1.25rem;
-    font-size: 0.875rem;
+    font-size: 0.9375rem;
   }
   .btn-sm {
     min-height: 28px;
     padding: 0 0.625rem;
-    font-size: 0.75rem;
+    font-size: 0.8125rem;
   }
   .btn-icon {
     width: 34px;
@@ -492,7 +519,7 @@
     background: var(--sunk);
     box-shadow: var(--well-shadow);
     color: var(--foreground);
-    font-size: 0.875rem;
+    font-size: 0.9375rem;
     font-family: inherit;
     transition:
       border-color 120ms ease,
@@ -541,7 +568,7 @@
     background: var(--surface);
     color: var(--foreground);
     padding: 0.3rem 0.7rem;
-    font-size: 0.75rem;
+    font-size: 0.8125rem;
     font-family: inherit;
     cursor: pointer;
   }
@@ -555,7 +582,7 @@
   .legend,
   .eyebrow {
     display: block;
-    font-size: 0.625rem;
+    font-size: 0.6875rem;
     font-weight: 600;
     line-height: 1;
     letter-spacing: 0.13em;
@@ -573,7 +600,7 @@
     width: 100%;
     border-collapse: separate;
     border-spacing: 0;
-    font-size: 0.8125rem;
+    font-size: 0.875rem;
   }
   .grid-table thead th,
   .tbl thead th {
@@ -581,7 +608,7 @@
     padding: 0.4375rem 0.75rem;
     background: var(--sunk);
     border-bottom: 1px solid var(--hairline);
-    font-size: 0.625rem;
+    font-size: 0.6875rem;
     font-weight: 600;
     letter-spacing: 0.12em;
     text-transform: uppercase;
@@ -620,7 +647,7 @@
     border: 1px solid var(--hairline-strong);
     border-radius: 2px;
     font-family: var(--font-mono), ui-monospace, monospace;
-    font-size: 0.65625rem;
+    font-size: 0.71875rem;
     font-weight: 500;
     letter-spacing: 0.04em;
     text-transform: uppercase;
@@ -691,7 +718,7 @@
     background: var(--rail);
     color: var(--rail-ink);
     font-family: var(--font-mono), ui-monospace, monospace;
-    font-size: 0.65625rem;
+    font-size: 0.71875rem;
     letter-spacing: 0.03em;
   }
   .strip-seg {
@@ -751,6 +778,17 @@
 }
 .rise-in {
   animation: rise-in 420ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* The live stage's sweep. Travels the full segment and a width either side,
+   so the highlight enters and leaves rather than fading in place. */
+@keyframes stage-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(100%);
+  }
 }
 
 @keyframes pulse-dot {

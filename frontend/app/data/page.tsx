@@ -71,7 +71,7 @@ function DataSurface() {
   return (
     <Surface
       crumb="Console"
-      title={<span className="text-[15px] font-semibold tracking-[-0.015em]">Data</span>}
+      title={<span className="text-[16.5px] font-semibold tracking-[-0.015em]">Data</span>}
       tools={<UserBadge />}
       strip={[
         { label: "READY", tone: "var(--readout-hi)" },
@@ -79,7 +79,7 @@ function DataSurface() {
         { label: "MAPPING", value: "user-confirmed" },
       ]}
     >
-      <p className="max-w-[80ch] text-[13px] leading-relaxed text-muted">
+      <p className="max-w-[80ch] text-[14.5px] leading-relaxed text-muted">
         A dataset is a reusable set of ledger, gateway, settlement and bank files. Generate a
         synthetic one to see the engine work, or upload your own, and either becomes something you can
         close the books against.
@@ -215,7 +215,7 @@ function ChoiceCard({
   return (
     <div className="panel flex flex-col gap-3 p-4">
       <span className="legend legend-hi">{title}</span>
-      <p className="flex-1 text-[12.5px] leading-relaxed text-muted">{body}</p>
+      <p className="flex-1 text-[14px] leading-relaxed text-muted">{body}</p>
       <button
         type="button"
         onClick={onClick}
@@ -274,6 +274,7 @@ function GenerateForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const taken = isNameTaken(existingNames, name);
+  const seedBlank = seed.trim() === "";
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -283,7 +284,7 @@ function GenerateForm({
       body: {
         name,
         source: "generated",
-        seed: seed ? Number(seed) : undefined,
+        seed: Number(seed),
         size: size ? Number(size) : undefined,
       },
     });
@@ -302,25 +303,26 @@ function GenerateForm({
   return (
     <form onSubmit={submit} className="flex flex-col gap-5">
       <div className="grid gap-4 sm:grid-cols-3">
-        <Field label="Name" hint="unique">
+        <Field label="Name">
           <input
             className="field"
             value={name}
             aria-invalid={taken || undefined}
             onChange={(e) => setName(e.target.value)}
           />
-          {taken && <span className="text-[11px] text-signal">That name is already used.</span>}
+          {taken && <span className="text-[12.5px] text-signal">That name is already used.</span>}
         </Field>
-        <Field label="Seed" hint="blank = random">
+        <Field label="Seed">
           <input
             className="field font-mono tabular"
             inputMode="numeric"
-            placeholder="random"
+            aria-invalid={seedBlank || undefined}
             value={seed}
             onChange={(e) => setSeed(e.target.value)}
           />
+          {seedBlank && <span className="text-[12.5px] text-signal">Seed is required.</span>}
         </Field>
-        <Field label="Size" hint="records">
+        <Field label="Size">
           <input
             className="field font-mono tabular"
             inputMode="numeric"
@@ -336,7 +338,11 @@ function GenerateForm({
       </p>
 
       <div className="flex gap-2.5">
-        <button type="submit" disabled={busy || !name.trim() || taken} className="btn btn-primary">
+        <button
+          type="submit"
+          disabled={busy || !name.trim() || taken || seedBlank}
+          className="btn btn-primary"
+        >
           {busy ? "Generating…" : "Generate dataset"}
         </button>
         <button type="button" onClick={onCancel} className="btn btn-ghost">
@@ -356,9 +362,31 @@ function GenerateForm({
   );
 }
 
+type RowError = { row_number: number; reason: string };
+
 type RoleUploadOutcome =
-  | { ok: true; valid_count: number; total_rows: number; error_count: number; notes: string[] }
+  | {
+      ok: true;
+      valid_count: number;
+      total_rows: number;
+      error_count: number;
+      notes: string[];
+      errors: RowError[];
+    }
   | { ok: false; error: string };
+
+/** Rejections collapse hard: a whole file usually fails for one reason, and
+ *  fifty-six copies of that reason is not a report. Group by reason, count
+ *  the rows, and lead with the one that cost the most. */
+function groupReasons(errors: RowError[]): { reason: string; count: number; firstRow: number }[] {
+  const byReason = new Map<string, { reason: string; count: number; firstRow: number }>();
+  for (const error of errors) {
+    const seen = byReason.get(error.reason);
+    if (seen) seen.count += 1;
+    else byReason.set(error.reason, { reason: error.reason, count: 1, firstRow: error.row_number });
+  }
+  return [...byReason.values()].sort((a, b) => b.count - a.count);
+}
 
 /**
  * What the parser had to do to read the file, said out loud.
@@ -374,6 +402,9 @@ function RoleUploadResult({ outcome }: { outcome: RoleUploadOutcome }) {
   if (!outcome.ok) {
     return <span className="text-xs text-signal">{outcome.error}</span>;
   }
+  const reasons = groupReasons(outcome.errors);
+  const shown = reasons.slice(0, 3);
+  const remaining = reasons.length - shown.length;
   return (
     <div className="flex flex-col gap-1">
       <span className={"text-xs " + (outcome.error_count > 0 ? "text-caution" : "text-positive")}>
@@ -381,10 +412,29 @@ function RoleUploadResult({ outcome }: { outcome: RoleUploadOutcome }) {
         {outcome.error_count > 0 && ` · ${outcome.error_count} rejected`}
       </span>
       {outcome.notes.map((note) => (
-        <span key={note} className="text-[11px] leading-snug text-faint">
+        <span key={note} className="text-[12.5px] leading-snug text-faint">
           {note}
         </span>
       ))}
+      {/* Why they were rejected, not just how many. A count alone sends the
+          uploader back to a file of 56 good-looking rows with nothing to go
+          on; the reason names the column and the value that failed. */}
+      {shown.length > 0 && (
+        <ul className="flex flex-col gap-1 border-l-2 border-caution/60 pl-2.5">
+          {shown.map((item) => (
+            <li key={item.reason} className="text-[12.5px] leading-snug text-muted">
+              <span className="mono text-[11.5px] text-caution">
+                {item.count} row{item.count === 1 ? "" : "s"}
+              </span>{" "}
+              {item.reason}
+              <span className="text-faint"> (first at row {item.firstRow})</span>
+            </li>
+          ))}
+          {remaining > 0 && (
+            <li className="text-[12.5px] text-faint">and {remaining} other reason(s)</li>
+          )}
+        </ul>
+      )}
     </div>
   );
 }
@@ -457,6 +507,7 @@ function UploadDatasetForm({
         total_rows: number;
         error_count: number;
         notes: string[];
+        errors: RowError[];
       }>(`/datasets/${dataset.id}/files`, saveForm);
       outcomes[role] = saved
         ? {
@@ -465,6 +516,7 @@ function UploadDatasetForm({
             total_rows: saved.total_rows,
             error_count: saved.error_count ?? 0,
             notes: saved.notes ?? [],
+            errors: saved.errors ?? [],
           }
         : { ok: false, error: saveError?.detail ?? "Could not save that file." };
     }
@@ -484,7 +536,7 @@ function UploadDatasetForm({
           aria-invalid={taken || undefined}
           onChange={(e) => setName(e.target.value)}
         />
-        {taken && <span className="text-[11px] text-signal">That name is already used.</span>}
+        {taken && <span className="text-[12.5px] text-signal">That name is already used.</span>}
       </Field>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -492,7 +544,7 @@ function UploadDatasetForm({
           <div key={value} className="card-flush flex flex-col gap-2 p-4">
             <div className="flex items-baseline justify-between gap-2">
               <span className="text-sm font-medium">{label}</span>
-              <span className="text-[11px] text-faint">{hint}</span>
+              <span className="text-[12.5px] text-faint">{hint}</span>
             </div>
             <input
               type="file"
@@ -611,7 +663,7 @@ function DatasetDetail({
           <span aria-hidden className="text-faint">
             /
           </span>
-          <span className="truncate text-[15px] font-semibold tracking-[-0.015em]">
+          <span className="truncate text-[16.5px] font-semibold tracking-[-0.015em]">
             {dataset?.name ?? "Loading…"}
           </span>
         </span>
@@ -628,7 +680,7 @@ function DatasetDetail({
       }
       footer={
         <>
-          <span className="mono text-[11px] text-faint tabular">
+          <span className="mono text-[12.5px] text-faint tabular">
             {records
               ? `${shownFrom}–${shownTo} of ${records.total} row${records.total === 1 ? "" : "s"}`
               : "No rows loaded"}
@@ -709,7 +761,7 @@ function DatasetDetail({
                     void loadRecords(value, 0, pageSize);
                   }}
                   className={
-                    "relative flex min-h-[42px] items-center gap-2 whitespace-nowrap border-r border-hairline px-4 text-[11px] font-semibold uppercase tracking-[0.1em] transition-colors " +
+                    "relative flex min-h-[42px] items-center gap-2 whitespace-nowrap border-r border-hairline px-4 text-[12.5px] font-semibold uppercase tracking-[0.1em] transition-colors " +
                     (i === 0 ? "border-l-0 " : "") +
                     (active ? "bg-surface text-foreground" : "text-muted hover:text-foreground")
                   }
@@ -720,7 +772,7 @@ function DatasetDetail({
                   {label}
                   <span
                     className={
-                      "mono rounded-sm px-1.5 py-px text-[10px] tracking-normal " +
+                      "mono rounded-sm px-1.5 py-px text-[11.5px] tracking-normal " +
                       (empty ? "text-faint" : "bg-positive-bg text-positive")
                     }
                   >
@@ -734,12 +786,12 @@ function DatasetDetail({
           {/* Per-role toolbar: where this role's rows came from, and what you
               can do to them. */}
           <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b border-hairline px-5 py-2.5">
-            <span className="mono truncate text-[11px] text-muted">
+            <span className="mono truncate text-[12.5px] text-muted">
               {activeFile?.raw_filename ??
                 (activeFile ? "generated in place" : "no file for this role")}
             </span>
             {activeFile && (
-              <span className="mono text-[11px] text-faint tabular">
+              <span className="mono text-[12.5px] text-faint tabular">
                 {activeFile.valid_count}/{activeFile.row_count} rows valid
               </span>
             )}
@@ -790,10 +842,28 @@ function DatasetDetail({
                 body="This dataset has no processed rows in any role. Upload a file to fill one in."
               />
             ) : !records || records.records.length === 0 ? (
-              <EmptyState
-                title="No rows in this role"
-                body="Nothing has been parsed and validated here yet."
-              />
+              // A file that was read and wholly rejected is not the same
+              // thing as a role nobody has filled in, and saying "nothing has
+              // been parsed" about 56 parsed rows sends the uploader looking
+              // for a file that is already here. Name which of the two it is.
+              activeFile && activeFile.row_count > 0 ? (
+                <EmptyState
+                  title={`All ${activeFile.row_count} rows were rejected`}
+                  body="The file was read and its columns were mapped, but no row survived validation, so this role holds nothing the engine can run on. Replace the file to see the reason for each rejected row."
+                  action={
+                    canReplace && !replacing ? (
+                      <button type="button" onClick={() => setReplacing(true)} className="btn btn-sm">
+                        Replace file
+                      </button>
+                    ) : undefined
+                  }
+                />
+              ) : (
+                <EmptyState
+                  title="No rows in this role"
+                  body="Nothing has been parsed and validated here yet."
+                />
+              )
             ) : (
               <RecordsTable records={records.records} startIndex={offset} />
             )}
@@ -831,7 +901,7 @@ function RecordsTable({
       <tbody>
         {records.map((record, i) => (
           <tr key={i} className="row-interactive">
-            <td className="mono text-right text-[11px] text-faint tabular">{startIndex + i + 1}</td>
+            <td className="mono text-right text-[12.5px] text-faint tabular">{startIndex + i + 1}</td>
             {columns.map((col) => (
               <td key={col} className="whitespace-nowrap font-mono text-xs">
                 {String(record[col] ?? "")}
@@ -862,6 +932,9 @@ function RoleUploader({
   const [overrides, setOverrides] = useState<Record<string, string | null>>({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Held only for the case that has nothing to show for itself: a save that
+  // stored no rows closes nothing and reports why instead.
+  const [rejected, setRejected] = useState<RoleUploadOutcome | null>(null);
 
   async function runPreview(event: React.FormEvent) {
     event.preventDefault();
@@ -894,19 +967,53 @@ function RoleUploader({
     formData.set("role", role);
     formData.set("mapping", JSON.stringify(mapping));
     formData.set("file", file);
-    const { error: apiError } = await postForm(`/datasets/${datasetId}/files`, formData);
+    const { data: saved, error: apiError } = await postForm<{
+      valid_count: number;
+      total_rows: number;
+      error_count: number;
+      notes: string[];
+      errors: RowError[];
+    }>(`/datasets/${datasetId}/files`, formData);
     setBusy(false);
-    if (apiError) {
-      setError(apiError.detail ?? "Could not save that file.");
+    if (apiError || !saved) {
+      setError(apiError?.detail ?? "Could not save that file.");
+      return;
+    }
+    // A file every row of which was rejected is a failed upload wearing a
+    // success's clothes: HTTP 201, nothing stored. Keep the panel open on
+    // the reasons rather than dismissing it onto an empty table.
+    if (saved.valid_count === 0) {
+      setRejected({
+        ok: true,
+        valid_count: saved.valid_count,
+        total_rows: saved.total_rows,
+        error_count: saved.error_count ?? 0,
+        notes: saved.notes ?? [],
+        errors: saved.errors ?? [],
+      });
       return;
     }
     setFile(null);
     setPreview(null);
+    setRejected(null);
     onSaved();
   }
 
   return (
     <div className="card-flush w-full p-4">
+      {rejected && (
+        <div
+          role="alert"
+          className="mb-3 rounded-[3px] border border-caution/50 bg-caution-bg px-3 py-2.5"
+        >
+          <p className="text-[13px] font-medium text-caution">
+            Nothing was stored: every row was rejected.
+          </p>
+          <div className="mt-1.5">
+            <RoleUploadResult outcome={rejected} />
+          </div>
+        </div>
+      )}
       {!preview ? (
         <form onSubmit={runPreview} className="flex flex-wrap items-center gap-3">
           <input
@@ -1017,7 +1124,7 @@ function MappingRow({
             ))}
           </select>
           {mapping && (
-            <span className="mono text-[10px] text-faint">{mapping.confidence.toFixed(2)}</span>
+            <span className="mono text-[11.5px] text-faint">{mapping.confidence.toFixed(2)}</span>
           )}
         </div>
       </td>

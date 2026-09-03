@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Logo } from "@/components/Logo";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { api } from "@/lib/api/client";
+import { api, clearApiCache } from "@/lib/api/client";
 import { useSession } from "@/lib/session";
 
 /**
@@ -38,8 +38,8 @@ const LINKS = [
 function Icon({ children }: { children: React.ReactNode }) {
   return (
     <svg
-      width="22"
-      height="22"
+      width="24"
+      height="24"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
@@ -66,6 +66,11 @@ export function Rail() {
 
   async function signOut() {
     await api.POST("/auth/logout");
+    // Nothing this session read stays in memory for the next one. The cached
+    // bodies are already tenant-safe -- a different user's row hashes to a
+    // different ETag, so the server answers 200 with theirs -- but there is
+    // no reason to hold one account's data while another is signing in.
+    clearApiCache();
     router.push("/login");
   }
 
@@ -82,7 +87,7 @@ export function Rail() {
         aria-label="Ledgerline home"
         className="hidden shrink-0 justify-center py-1 text-rail-hi md:flex"
       >
-        <Logo size={26} className="text-white" />
+        <Logo size={28} className="text-white" />
       </Link>
 
       {/* Two destinations, centred in the space between the mark and the
@@ -111,7 +116,7 @@ export function Rail() {
                   />
                 )}
                 <Icon>{link.icon}</Icon>
-                <span className="text-[10px] font-semibold uppercase tracking-[0.09em]">
+                <span className="text-[11.5px] font-semibold uppercase tracking-[0.09em]">
                   {link.label}
                 </span>
               </Link>
@@ -137,8 +142,8 @@ export function Rail() {
             className="btn btn-icon !h-9 !min-h-9 !w-9 !border-rail-line !bg-transparent !text-rail-ink hover:!border-rail-ink hover:!text-white"
           >
             <svg
-              width="17"
-              height="17"
+              width="19"
+              height="19"
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"

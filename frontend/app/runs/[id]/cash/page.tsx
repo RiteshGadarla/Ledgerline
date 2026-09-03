@@ -46,11 +46,11 @@ export default function CashPositionPage({ params }: { params: Promise<{ id: str
           <div className="p-4">
             {/* Legend: two series, so identity is never colour alone. */}
             <div className="mb-4 flex flex-wrap items-center gap-x-5 gap-y-2">
-              <span className="flex items-center gap-2 text-[11.5px] text-muted">
+              <span className="flex items-center gap-2 text-[13px] text-muted">
                 <span aria-hidden className="h-3 w-3 rounded-sm bg-readout-hi" />
                 Recognised
               </span>
-              <span className="flex items-center gap-2 text-[11.5px] text-muted">
+              <span className="flex items-center gap-2 text-[13px] text-muted">
                 <span aria-hidden className="hatch h-3 w-3 rounded-sm" />
                 Blocked behind an exception
               </span>
@@ -67,7 +67,7 @@ export default function CashPositionPage({ params }: { params: Promise<{ id: str
                     {/* per-mark hover readout */}
                     <span
                       role="tooltip"
-                      className="mono pointer-events-none absolute bottom-full left-1/2 z-10 -translate-x-1/2 -translate-y-1.5 whitespace-nowrap rounded-[3px] bg-rail px-2 py-1 text-[10.5px] text-white opacity-0 transition-opacity group-hover:opacity-100"
+                      className="mono pointer-events-none absolute bottom-full left-1/2 z-10 -translate-x-1/2 -translate-y-1.5 whitespace-nowrap rounded-[3px] bg-rail px-2 py-1 text-[12px] text-white opacity-0 transition-opacity group-hover:opacity-100"
                     >
                       {day.date} · {formatRupees(day.recognised)}
                       {hasBlock ? ` · ${formatRupees(day.blocked)} blocked` : ""}
@@ -98,7 +98,7 @@ export default function CashPositionPage({ params }: { params: Promise<{ id: str
               {days.map((day) => (
                 <span
                   key={day.date}
-                  className="mono min-w-0 flex-1 text-center text-[10px] text-faint"
+                  className="mono min-w-0 flex-1 text-center text-[11.5px] text-faint"
                 >
                   {day.date.slice(5)}
                 </span>
@@ -151,7 +151,7 @@ export default function CashPositionPage({ params }: { params: Promise<{ id: str
             sub="Credits that never tied to any settlement."
           />
           <div className="panel p-4">
-            <p className="text-[11.5px] leading-relaxed text-muted">
+            <p className="text-[13px] leading-relaxed text-muted">
               Projected over this corpus&apos;s own T+2 settlement window, not the calendar
               &ldquo;today&rdquo;. &ldquo;Blocked&rdquo; is payout still held behind an open
               exception

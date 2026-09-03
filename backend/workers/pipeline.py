@@ -63,11 +63,26 @@ async def run_pipeline(
     triage_outcome = await run_triage(
         list(exceptioned_settlement_ids), index, unresolved_bank_line_ids, gateway, used, user_id
     )
-    resolved_settlement_ids = {g.settlement_id for g in triage_outcome.groups}
+    # Every record an assisted group closed, not just the settlement that was
+    # sent to triage. A settlement arriving at triage brings its payments, its
+    # invoices and its bank line with it, and each of those was filed as its
+    # own exception during the deterministic pass -- dropping only the
+    # settlement's would leave the rest of the group sitting in the open list
+    # while the same records are also counted as assisted, inflating the
+    # exception count, the rupees at risk and the open rate all at once.
+    resolved = UsedRecordIds()
+    for group in triage_outcome.groups:
+        resolved = resolved.with_group(group)
+    resolved_ids_by_kind = {
+        "settlement": resolved.settlement_ids,
+        "payment": resolved.payment_ids,
+        "invoice": resolved.invoice_ids,
+        "bank_line": resolved.bank_line_ids,
+    }
     remaining_exceptions = [
         exc
         for exc in result.exceptions
-        if not any(r.kind == "settlement" and r.id in resolved_settlement_ids for r in exc.records)
+        if not any(r.id in resolved_ids_by_kind.get(r.kind, frozenset()) for r in exc.records)
     ]
     remaining_exceptions.extend(triage_outcome.exceptions)
     all_groups = result.groups + triage_outcome.groups

@@ -1,5 +1,6 @@
 import json
 import logging
+from datetime import UTC, datetime
 from typing import Any, cast
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,6 +31,30 @@ logger = logging.getLogger("ledgerline.worker")
 DEFAULT_DEMO_SEED = 1001
 DEFAULT_DEMO_SIZE = 150
 
+# Long enough that a run opened the next morning still shows how it spent its
+# time, short enough that the traces of a busy week don't accumulate.
+TRACE_TTL_SECONDS = 24 * 60 * 60
+
+
+async def _emit(redis_client: Any, run_id: str, payload: dict[str, Any]) -> None:
+    """Record a transition, then announce it.
+
+    The list is what a client reads when it connects late or reloads
+    mid-run: it recovers the transitions it missed, stamped with the moment
+    the worker actually made them. That timestamp is the point -- it lets the
+    console time each pipeline stage from the worker's own clock instead of
+    from whenever a browser happened to be listening, and the early stages of
+    a run are over long before any browser is.
+
+    The publish is the same event for whoever is already listening.
+    """
+    event = {**payload, "at": datetime.now(UTC).isoformat().replace("+00:00", "Z")}
+    encoded = json.dumps(event)
+    key = f"run:{run_id}:trace"
+    await redis_client.rpush(key, encoded)
+    await redis_client.expire(key, TRACE_TTL_SECONDS)
+    await redis_client.publish(f"run:{run_id}", encoded)
+
 
 async def _load_dataset_corpus(db: AsyncSession, dataset_id: str, user_id: str) -> tuple[Corpus, Truth | None] | None:
     """None means the dataset doesn't exist for this user or isn't ready --
@@ -51,11 +76,13 @@ async def _load_dataset_corpus(db: AsyncSession, dataset_id: str, user_id: str) 
 async def run_reconciliation(ctx: dict[str, Any], run_id: str, user_id: str) -> None:
     """The arq job body: queued -> normalising -> matching -> triaging ->
     explaining -> scoring -> complete|failed. State is persisted to Postgres
-    on every transition and published to Redis pub/sub, so any API replica
-    (reading from the same Postgres row plus the same pub/sub channel) can
-    serve this run's stream regardless of which replica the client connects
-    to, and a fresh connection after the fact still sees the terminal state
-    from the row even though it missed the pub/sub message.
+    on every transition, appended to a Redis trace list, and published to
+    Redis pub/sub, so any API replica (reading from the same Postgres row,
+    the same list and the same channel) can serve this run's stream
+    regardless of which replica the client connects to. A connection made
+    part-way through replays the transitions it missed off the list, and one
+    made after the fact still sees the terminal state from the row even if
+    the trace has since expired.
     """
     session_factory = ctx["db_session_factory"]
     redis_client = ctx["redis_client"]
@@ -64,7 +91,7 @@ async def run_reconciliation(ctx: dict[str, Any], run_id: str, user_id: str) -> 
     async def publish_state(state: RunState) -> None:
         async with session_factory() as db:
             await transition_run_state(db, run_id, cast(DbRunState, state))
-        await redis_client.publish(f"run:{run_id}", json.dumps({"state": state}))
+        await _emit(redis_client, run_id, {"state": state})
 
     async with session_factory() as db:
         run = await get_run_for_user(db, run_id, user_id)
@@ -83,7 +110,7 @@ async def run_reconciliation(ctx: dict[str, Any], run_id: str, user_id: str) -> 
             error = f"dataset {run.dataset_id!r} not found or not ready"
             async with session_factory() as db:
                 await fail_run(db, run_id, error)
-            await redis_client.publish(f"run:{run_id}", json.dumps({"state": "failed", "error": error}))
+            await _emit(redis_client, run_id, {"state": "failed", "error": error})
             return
         corpus, truth = loaded
 
@@ -107,7 +134,7 @@ async def run_reconciliation(ctx: dict[str, Any], run_id: str, user_id: str) -> 
         logger.exception("run_reconciliation: run %s failed", run_id)
         async with session_factory() as db:
             await fail_run(db, run_id, str(exc))
-        await redis_client.publish(f"run:{run_id}", json.dumps({"state": "failed", "error": str(exc)}))
+        await _emit(redis_client, run_id, {"state": "failed", "error": str(exc)})
         return
 
     result_json = serialize_match_result(outcome.result)
@@ -115,4 +142,4 @@ async def run_reconciliation(ctx: dict[str, Any], run_id: str, user_id: str) -> 
     forecast_json = build_forecast(corpus, outcome.result).model_dump_json()
     async with session_factory() as db:
         await complete_run(db, run_id, result_json, metrics_json, forecast_json)
-    await redis_client.publish(f"run:{run_id}", json.dumps({"state": "complete"}))
+    await _emit(redis_client, run_id, {"state": "complete"})

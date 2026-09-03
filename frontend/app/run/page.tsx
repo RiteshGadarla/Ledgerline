@@ -113,7 +113,7 @@ function RunSurface() {
   return (
     <Surface
       crumb="Console"
-      title={<span className="text-[15px] font-semibold tracking-[-0.015em]">Run</span>}
+      title={<span className="text-[16.5px] font-semibold tracking-[-0.015em]">Run</span>}
       tools={<UserBadge />}
       strip={[
         { label: "READY", tone: "var(--readout-hi)" },
@@ -192,7 +192,7 @@ function RunSurface() {
               <div className="w-full border-t border-hairline pt-4">
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   <span className="legend">Break it first</span>
-                  <span className="text-[11.5px] text-faint">
+                  <span className="text-[13px] text-faint">
                     Optional. Corrupts a copy of the data (the dataset itself is never touched)
                     and corrupts the answer key with it, so the score stays honest.
                   </span>
@@ -214,7 +214,7 @@ function RunSurface() {
                           )
                         }
                         className={
-                          "rounded-[3px] border px-2.5 py-1.5 text-[12px] transition-colors " +
+                          "rounded-[3px] border px-2.5 py-1.5 text-[13.5px] transition-colors " +
                           (on
                             ? "border-signal bg-signal-bg text-signal"
                             : "border-hairline text-muted hover:border-hairline-strong hover:text-foreground")
@@ -226,7 +226,7 @@ function RunSurface() {
                   })}
                 </div>
                 {mutations.length > 0 && (
-                  <p className="mt-2.5 text-[11.5px] text-muted">
+                  <p className="mt-2.5 text-[13px] text-muted">
                     {mutations.length} corruption{mutations.length === 1 ? "" : "s"} will be applied
                     in order. False matches must still be zero afterwards; that is the point of the
                     exercise.
@@ -285,7 +285,7 @@ function RunSurface() {
                     <td>
                       <Link
                         href={`/runs/${run.id}`}
-                        className="mono text-[12.5px] text-accent hover:underline"
+                        className="mono text-[14px] text-accent hover:underline"
                       >
                         {run.id.slice(0, 8)}
                       </Link>

@@ -3,13 +3,26 @@ from typing import Any
 import redis.asyncio as redis
 from arq.connections import RedisSettings
 
+from app.logging_config import configure_logging
 from app.settings import get_settings
 from db.base import make_engine, make_session_factory
 from llm.factory import build_gateway
 from workers.tasks import run_reconciliation
 
+# At import, so anything logged while the worker is coming up lands in
+# worker.log rather than nowhere. The worker previously configured no logging
+# at all, which left workers/tasks.py's logger -- the one that reports a run
+# failing -- writing an unformatted line to stderr at the root default.
+configure_logging("worker")
+
 
 async def startup(ctx: dict[str, Any]) -> None:
+    # Again here, and this is the call that sticks: arq's CLI imports this
+    # module to find WorkerSettings and only then runs its own dictConfig,
+    # which hands the `arq` logger a handler in arq's format. Re-running the
+    # configuration from a hook arq calls afterwards puts every job log back
+    # into the same JSON stream as everything else.
+    configure_logging("worker")
     settings = get_settings()
     if not settings.database_url:
         raise RuntimeError("DATABASE_URL must be set for the worker")

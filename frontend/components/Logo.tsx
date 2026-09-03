@@ -7,7 +7,7 @@
  * correctly on paper, on the dark rail, and on the dark auth panel without
  * three variants. Only the settled point carries the readout colour.
  */
-export function Logo({ size = 24, className = "" }: { size?: number; className?: string }) {
+export function Logo({ size = 26, className = "" }: { size?: number; className?: string }) {
   return (
     <svg
       width={size}
@@ -31,11 +31,11 @@ export function Logo({ size = 24, className = "" }: { size?: number; className?:
   );
 }
 
-export function Wordmark({ size = 22, className = "" }: { size?: number; className?: string }) {
+export function Wordmark({ size = 24, className = "" }: { size?: number; className?: string }) {
   return (
     <span className={"inline-flex items-center gap-2.5 " + className}>
       <Logo size={size} />
-      <span className="text-[14px] font-semibold tracking-[-0.01em]">Ledgerline</span>
+      <span className="text-[15.5px] font-semibold tracking-[-0.01em]">Ledgerline</span>
     </span>
   );
 }
