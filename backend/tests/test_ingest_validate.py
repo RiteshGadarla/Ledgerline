@@ -111,3 +111,29 @@ def test_bank_rows_build_bank_lines() -> None:
     bank_line = report.valid_records[0]
     assert isinstance(bank_line, BankLine)
     assert bank_line.credit == 50_000
+
+
+def test_gateway_rows_timestamped_to_the_minute_are_valid() -> None:
+    # The shape of a real captured-payments export: a date column that is
+    # actually a timestamp. Every row here is good; none may be rejected for
+    # having said what time of day it happened.
+    table = ParsedTable(
+        headers=["payment_id", "amount_captured", "payment_date"],
+        rows=[
+            {"payment_id": "pay_G5051", "amount_captured": "22498.69", "payment_date": "2026-08-04 00:00"},
+            {"payment_id": "pay_G5028", "amount_captured": "1428.52", "payment_date": "2026-07-15 10:23:45"},
+            {"payment_id": "pay_G5048", "amount_captured": "19279.40", "payment_date": "2026-07-15T09:15:00+05:30"},
+        ],
+    )
+    mapping = _mapping(
+        {"payment_id": "id", "amount_captured": "gross", "payment_date": "captured_at"}
+    )
+
+    report = build_records("gateway", table, mapping)
+
+    assert report.errors == []
+    assert len(report.valid_records) == 3
+    payment = report.valid_records[0]
+    assert isinstance(payment, Payment)
+    assert payment.gross == 2_249_869
+    assert payment.captured_at.date().isoformat() == "2026-08-04"
