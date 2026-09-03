@@ -38,7 +38,7 @@ DATABASE_URL=postgresql+asyncpg://ledgerline:ledgerline@localhost:5432/ledgerlin
 
 `POST /runs` enqueues a job under the run's own id (so arq's own id-based dedup backs up the DB-level idempotency-key check), and the worker persists each state-machine transition (`queued -> normalising -> matching -> triaging -> explaining -> scoring -> complete|failed`) to the run's row and publishes it on the `run:{id}` Redis pub/sub channel. `GET /runs/{id}/stream` (SSE) reads the row first and only then subscribes -- a client that connects after the run has already finished sees the terminal state immediately, and any API replica can serve any run's stream since nothing is held in worker or API process memory.
 
-Dataset-sourced runs (`source: "dataset"`) fail immediately with a typed error: dataset persistence doesn't exist yet (Phase 8's `ingest/` only parses in-memory), so only `source: "demo"` actually runs end to end today. The `mutations` field is rejected outright for the same reason -- the adversarial mutation engine (Phase 13) hasn't been built.
+Both run sources work end to end. `source: "demo"` generates a seeded corpus with its answer key; `source: "dataset"` rebuilds the corpus from a stored dataset's validated records, so an uploaded four-file batch runs through the same engine as a generated one. The `mutations` field takes any of the seven typed corruptions in `datagen/mutations.py`, applied to a copy of the corpus with the truth corrupted in lockstep and recorded on the run, so a run's URL reproduces exactly what was tested.
 
 ## Database migrations
 
