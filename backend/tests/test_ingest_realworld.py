@@ -56,7 +56,7 @@ class TestMisformattedTables:
         assert any("above the header" in note for note in table.notes)
 
     def test_a_preamble_line_that_looks_wordy_is_not_mistaken_for_the_header(self) -> None:
-        """"Account Name,ACME TRADERS" is two words and no numbers -- the only
+        """ "Account Name,ACME TRADERS" is two words and no numbers -- the only
         thing separating it from a header is that the body is five columns wide."""
         content = (
             b"Account Name,ACME TRADERS PVT LTD\n"
@@ -91,11 +91,7 @@ class TestMisformattedTables:
         """The settlement export joins payment ids with `;`. That splits rows
         into more fields than the comma does -- but into a different number on
         every row, which is what disqualifies it."""
-        content = (
-            b"id,payout,payment_ids\n"
-            b"STL1,100.00,pay_a;pay_b;pay_c\n"
-            b"STL2,200.00,pay_d;pay_e\n"
-        )
+        content = b"id,payout,payment_ids\nSTL1,100.00,pay_a;pay_b;pay_c\nSTL2,200.00,pay_d;pay_e\n"
 
         table = _parsed(content)
 
@@ -119,13 +115,7 @@ class TestMisformattedTables:
         assert any("blank row" in note for note in table.notes)
 
     def test_totals_and_balance_lines_anywhere_are_dropped(self) -> None:
-        content = (
-            b"id,amount\n"
-            b"INV1,100.00\n"
-            b"Sub Total,100.00\n"
-            b"INV2,200.00\n"
-            b"Closing Balance,300.00\n"
-        )
+        content = b"id,amount\nINV1,100.00\nSub Total,100.00\nINV2,200.00\nClosing Balance,300.00\n"
 
         table = _parsed(content)
 
@@ -232,14 +222,10 @@ class TestMissingData:
         assert any("no identifier" in note for note in report.notes)
 
     def test_rows_missing_a_required_field_are_reported_and_the_rest_survive(self) -> None:
-        content = (
-            b"id,amount,issued_at\nINV1,100.00,01/04/2024\nINV2,,02/04/2024\nINV3,300.00,03/04/2024\n"
-        )
+        content = b"id,amount,issued_at\nINV1,100.00,01/04/2024\nINV2,,02/04/2024\nINV3,300.00,03/04/2024\n"
         table = _parsed(content)
 
-        report = build_records(
-            "ledger", table, _mapping({"id": "id", "amount": "amount", "issued_at": "issued_at"})
-        )
+        report = build_records("ledger", table, _mapping({"id": "id", "amount": "amount", "issued_at": "issued_at"}))
 
         assert len(report.valid_records) == 2
         assert [e.row_number for e in report.errors] == [2]
@@ -249,9 +235,7 @@ class TestMissingData:
         content = b"id,amount,issued_at\nINV1,not money,01/04/2024\n"
         table = _parsed(content)
 
-        report = build_records(
-            "ledger", table, _mapping({"id": "id", "amount": "amount", "issued_at": "issued_at"})
-        )
+        report = build_records("ledger", table, _mapping({"id": "id", "amount": "amount", "issued_at": "issued_at"}))
 
         assert report.valid_records == []
         assert report.errors[0].row_number == 1
@@ -275,9 +259,7 @@ class TestMissingData:
         content = f"id,amount,issued_at,note\n{rows}\n".encode()
         table = _parsed(content)
 
-        report = build_records(
-            "ledger", table, _mapping({"id": "id", "amount": "amount", "issued_at": "issued_at"})
-        )
+        report = build_records("ledger", table, _mapping({"id": "id", "amount": "amount", "issued_at": "issued_at"}))
 
         assert len(report.errors) == MAX_REPORTED_ERRORS
         assert report.error_count == MAX_REPORTED_ERRORS + 250
@@ -288,9 +270,7 @@ class TestMissingData:
         content = b"id,amount,issued_at,junk\nINV1,100.00,01/04/2024,x\n,,,leftover\n"
         table = _parsed(content)
 
-        report = build_records(
-            "ledger", table, _mapping({"id": "id", "amount": "amount", "issued_at": "issued_at"})
-        )
+        report = build_records("ledger", table, _mapping({"id": "id", "amount": "amount", "issued_at": "issued_at"}))
 
         assert len(report.valid_records) == 1
         assert report.errors == []  # the trailing row mapped to nothing at all
@@ -299,9 +279,7 @@ class TestMissingData:
         content = b"Statement\n,\nid,amount,issued_at\nINV1,100.00,01/04/2024\n"
         table = _parsed(content)
 
-        report = build_records(
-            "ledger", table, _mapping({"id": "id", "amount": "amount", "issued_at": "issued_at"})
-        )
+        report = build_records("ledger", table, _mapping({"id": "id", "amount": "amount", "issued_at": "issued_at"}))
 
         assert report.notes  # whatever the parser repaired travels with the report
 

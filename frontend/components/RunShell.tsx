@@ -102,11 +102,14 @@ export function RunShell({ runId, children }: { runId: string; children: React.R
     strip.push({ label: "TOOK", value: formatElapsed(finalDuration) });
   }
   if (metrics) {
-    strip.push(
-      { label: "ASSIST", value: formatRate(metrics.assist_rate) },
-      { label: "FALSE MATCHES", value: String(metrics.false_matches ?? "-") },
-      { label: "THROUGHPUT", value: `${metrics.throughput_rps.toFixed(1)} rec/s` },
-    );
+    strip.push({ label: "ASSIST", value: formatRate(metrics.assist_rate) });
+    // Only where an answer key exists to score against. An uploaded corpus has
+    // none, and a dash on the instrument's bottom line reads as a broken gauge
+    // rather than as "not applicable".
+    if (metrics.false_matches !== null && metrics.false_matches !== undefined) {
+      strip.push({ label: "FALSE MATCHES", value: String(metrics.false_matches) });
+    }
+    strip.push({ label: "THROUGHPUT", value: `${metrics.throughput_rps.toFixed(1)} rec/s` });
   }
 
   return (
@@ -135,6 +138,30 @@ export function RunShell({ runId, children }: { runId: string; children: React.R
             <span className="mono hidden text-[12.5px] text-faint sm:inline">
               {metrics.records.toLocaleString()} rec
             </span>
+          )}
+          {/* Both only once there is a result to export; before that they
+              would download a 404. The PDF is the whole run as a document --
+              verdict, exceptions, cash position, and what reproduces it --
+              for the reader who will never be handed a URL. */}
+          {state === "complete" && (
+            <a href={`/api/runs/${runId}/report.pdf`} className="btn btn-sm">
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.7"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+                <path d="M14 3v5h5" />
+                <path d="M9 13h6M9 17h4" />
+              </svg>
+              Report
+            </a>
           )}
           <a href={`/api/runs/${runId}/export.csv`} className="btn btn-sm">
             <svg

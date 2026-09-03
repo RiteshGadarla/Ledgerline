@@ -19,8 +19,11 @@ from db.tenancy import (
     DatasetRecord,
     DatasetRole,
     UserRecord,
+    count_runs_for_dataset,
     create_dataset,
     dataset_name_taken,
+    delete_dataset_file,
+    delete_dataset_for_user,
     get_dataset_file_raw,
     get_dataset_for_user,
     list_dataset_files,
@@ -59,6 +62,8 @@ class DatasetOut(BaseModel):
     status: str
     created_at: datetime
     files: list[DatasetFileOut]
+    # So a delete can say what it will cost before it is confirmed.
+    run_count: int = 0
 
 
 class DatasetCreate(BaseModel):
@@ -106,6 +111,7 @@ async def _get_owned_dataset_or_404(db: AsyncSession, dataset_id: str, user_id: 
 
 async def _dataset_out(db: AsyncSession, dataset: DatasetRecord) -> DatasetOut:
     files = await list_dataset_files(db, dataset.id)
+    run_count = await count_runs_for_dataset(db, dataset.id, dataset.user_id)
     by_role = {f.role: f for f in files}
     return DatasetOut(
         id=dataset.id,
@@ -125,6 +131,7 @@ async def _dataset_out(db: AsyncSession, dataset: DatasetRecord) -> DatasetOut:
             )
             for role in REQUIRED_DATASET_ROLES
         ],
+        run_count=run_count,
     )
 
 
@@ -290,3 +297,54 @@ async def get_dataset_file_raw_endpoint(
         media_type=raw.raw_content_type or "application/octet-stream",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
+
+
+class DatasetDeletedOut(BaseModel):
+    """What a delete removed, stated rather than implied: a caller that asked
+    to remove one dataset is entitled to know how many runs went with it."""
+
+    dataset_id: str
+    runs_deleted: int
+
+
+@router.delete("/{dataset_id}", response_model=DatasetDeletedOut)
+async def delete_dataset_endpoint(
+    dataset_id: str, user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> DatasetDeletedOut:
+    """Deletes a dataset, every file in it, and every run made from it.
+
+    The runs go too, deliberately. A run's scoreboard cites records by id and
+    its exceptions quote evidence out of them; once the dataset is gone none
+    of that can be re-derived, and a reconciliation you cannot re-derive is
+    not evidence of anything. Better to remove it than to leave a figure on
+    screen that nothing backs any more.
+
+    A run still in flight goes too, which cancels it: the worker looks its run
+    up before doing any work and stops when it finds nothing. Refusing instead
+    would let a worker that died holding a queued run block its dataset from
+    ever being deleted.
+    """
+    dataset = await _get_owned_dataset_or_404(db, dataset_id, user.id)
+    runs_deleted = await delete_dataset_for_user(db, dataset.id, user.id)
+    return DatasetDeletedOut(dataset_id=dataset.id, runs_deleted=runs_deleted)
+
+
+@router.delete("/{dataset_id}/files/{role}", response_model=DatasetOut)
+async def delete_dataset_file_endpoint(
+    dataset_id: str, role: str, user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> DatasetOut:
+    """Removes one role's file. The dataset survives one role lighter, and
+    drops out of "ready" because a run needs all four.
+
+    Existing runs are left alone: they were scored against the records as they
+    stood, and rewriting history to match a later edit would make every
+    scoreboard provisional.
+    """
+    dataset = await _get_owned_dataset_or_404(db, dataset_id, user.id)
+    validated_role = require_role(role)
+    if not await delete_dataset_file(db, dataset.id, validated_role):
+        raise NotFoundError(f"dataset {dataset_id!r} has no {validated_role!r} file to delete")
+    await recompute_dataset_status(db, dataset.id)
+    refreshed = await get_dataset_for_user(db, dataset.id, user.id)
+    assert refreshed is not None
+    return await _dataset_out(db, refreshed)

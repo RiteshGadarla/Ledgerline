@@ -249,9 +249,7 @@ class TestChained:
 
     def test_all_seven_at_once_still_holds_together(self) -> None:
         corpus, truth = generate_corpus(SEED, SIZE)
-        mutated, mutated_truth = apply_mutations(
-            corpus, truth, [MutationSpec(kind=k) for k in ALL_KINDS], seed=SEED
-        )
+        mutated, mutated_truth = apply_mutations(corpus, truth, [MutationSpec(kind=k) for k in ALL_KINDS], seed=SEED)
         assert mutated_truth is not None
         _assert_truth_internally_consistent(mutated, mutated_truth)
         metrics = score_run(mutated, match(mutated), mutated_truth, elapsed_seconds=0.01)

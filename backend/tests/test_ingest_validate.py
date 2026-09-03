@@ -125,9 +125,7 @@ def test_gateway_rows_timestamped_to_the_minute_are_valid() -> None:
             {"payment_id": "pay_G5048", "amount_captured": "19279.40", "payment_date": "2026-07-15T09:15:00+05:30"},
         ],
     )
-    mapping = _mapping(
-        {"payment_id": "id", "amount_captured": "gross", "payment_date": "captured_at"}
-    )
+    mapping = _mapping({"payment_id": "id", "amount_captured": "gross", "payment_date": "captured_at"})
 
     report = build_records("gateway", table, mapping)
 

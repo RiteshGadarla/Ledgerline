@@ -16,6 +16,7 @@ from app.db import get_db
 from app.deps import get_current_user
 from app.errors import NotFoundError, ValidationFailedError
 from app.redis_client import get_redis
+from app.report import build_run_report
 from app.routers.datasets import MAX_GENERATED_SIZE, MIN_GENERATED_SIZE
 from contracts.models import CashForecast, Exception_, MatchGroup, RunMetrics
 from datagen.mutations import format_mutation, parse_mutation
@@ -351,3 +352,28 @@ async def list_exception_decisions_endpoint(
     if records is None:
         raise NotFoundError(f"run {run_id!r} not found")
     return [_decision_out(record) for record in records]
+
+
+@router.get(
+    "/{run_id}/report.pdf",
+    response_class=StreamingResponse,
+    response_description="The run's full report as a branded PDF attachment.",
+)
+async def export_run_report_endpoint(
+    run_id: str, user: UserRecord = Depends(get_current_user), db: AsyncSession = Depends(get_db)
+) -> StreamingResponse:
+    """The whole run as a document: verdict, run detail, the chain, every open
+    exception worst-first, the cash position, and what it takes to reproduce
+    the run. 404 until the run completes, for the same reason the CSV export
+    is: there is nothing to report on a run that has not finished.
+    """
+    run = await _get_owned_run_or_404(db, run_id, user.id)
+    if run.result_json is None:
+        raise NotFoundError(f"run {run_id!r} has no result yet")
+
+    pdf = build_run_report(run)
+    return StreamingResponse(
+        iter([pdf]),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="ledgerline-run-{run_id[:8]}.pdf"'},
+    )

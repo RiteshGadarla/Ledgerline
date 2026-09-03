@@ -37,9 +37,7 @@ def _exception(id_: str, code: ExceptionCode, amount: int = 10000) -> Exception_
 
 
 def _fixture(*items: tuple[str, str, str]) -> str:
-    return json.dumps(
-        {"items": [{"code": c, "explanation": e, "suggested_action": a} for c, e, a in items]}
-    )
+    return json.dumps({"items": [{"code": c, "explanation": e, "suggested_action": a} for c, e, a in items]})
 
 
 async def test_explain_annotates_every_exception_from_its_code_s_answer(redis_client: redis.Redis) -> None:

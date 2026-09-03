@@ -221,3 +221,86 @@ def test_dataset_name_must_be_unique_per_user_but_not_across_users(runs_client: 
     _register(runs_client, "name-user-b")
     other_tenant = runs_client.post("/datasets", json={"name": "Synthetic-1", "source": "uploaded"})
     assert other_tenant.status_code == 201, other_tenant.text
+
+
+def test_deleting_a_dataset_takes_its_files_and_its_runs_with_it(runs_client: TestClient) -> None:
+    """A run's scoreboard cites records by id. Once the dataset is gone the
+    figures cannot be re-derived, so the run goes with it rather than being
+    left on screen with nothing behind it."""
+    _register(runs_client, "deleter")
+    dataset_id = runs_client.post(
+        "/datasets", json={"name": "doomed", "source": "generated", "seed": 1001, "size": 30}
+    ).json()["id"]
+    run_id = runs_client.post("/runs", json={"source": "dataset", "dataset_id": dataset_id}).json()["id"]
+
+    response = runs_client.delete(f"/datasets/{dataset_id}")
+
+    assert response.status_code == 200, response.text
+    assert response.json() == {"dataset_id": dataset_id, "runs_deleted": 1}
+    assert runs_client.get(f"/datasets/{dataset_id}").status_code == 404
+    assert runs_client.get(f"/runs/{run_id}").status_code == 404
+    assert runs_client.get("/datasets").json() == []
+
+
+def test_deleting_a_dataset_leaves_another_datasets_runs_alone(runs_client: TestClient) -> None:
+    _register(runs_client, "two-datasets")
+    keep = runs_client.post("/datasets", json={"name": "keep", "source": "generated", "seed": 1001, "size": 30}).json()[
+        "id"
+    ]
+    drop = runs_client.post("/datasets", json={"name": "drop", "source": "generated", "seed": 1002, "size": 30}).json()[
+        "id"
+    ]
+    kept_run = runs_client.post("/runs", json={"source": "dataset", "dataset_id": keep}).json()["id"]
+
+    assert runs_client.delete(f"/datasets/{drop}").json()["runs_deleted"] == 0
+    assert runs_client.get(f"/runs/{kept_run}").status_code == 200
+    assert runs_client.get(f"/datasets/{keep}").status_code == 200
+
+
+def test_deleting_another_users_dataset_is_404_not_403(runs_client: TestClient) -> None:
+    """Same tenancy rule as every other route: a dataset you do not own does
+    not exist, rather than existing and being refused."""
+    _register(runs_client, "del-owner")
+    dataset_id = runs_client.post("/datasets", json={"name": "mine", "source": "uploaded"}).json()["id"]
+    runs_client.post("/auth/logout")
+    _register(runs_client, "del-stranger")
+
+    assert runs_client.delete(f"/datasets/{dataset_id}").status_code == 404
+
+
+def test_deleting_one_role_file_drops_the_dataset_out_of_ready(runs_client: TestClient) -> None:
+    _register(runs_client, "file-deleter")
+    dataset_id = runs_client.post("/datasets", json={"name": "partial", "source": "uploaded"}).json()["id"]
+    _upload_all_roles(runs_client, dataset_id)
+    assert runs_client.get(f"/datasets/{dataset_id}").json()["status"] == "ready"
+
+    response = runs_client.delete(f"/datasets/{dataset_id}/files/gateway")
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["status"] == "incomplete"
+    gateway = next(f for f in body["files"] if f["role"] == "gateway")
+    assert gateway["row_count"] == 0
+    assert gateway["raw_filename"] is None
+    ledger = next(f for f in body["files"] if f["role"] == "ledger")
+    assert ledger["row_count"] == 1
+
+
+def test_deleting_a_role_file_that_is_not_there_is_404(runs_client: TestClient) -> None:
+    _register(runs_client, "missing-file-deleter")
+    dataset_id = runs_client.post("/datasets", json={"name": "empty", "source": "uploaded"}).json()["id"]
+
+    assert runs_client.delete(f"/datasets/{dataset_id}/files/bank").status_code == 404
+
+
+def test_deleting_a_role_file_leaves_existing_runs_alone(runs_client: TestClient) -> None:
+    """A run was scored against the records as they stood. Rewriting that to
+    match a later edit would make every scoreboard provisional."""
+    _register(runs_client, "file-delete-run-keeper")
+    dataset_id = runs_client.post("/datasets", json={"name": "edited", "source": "uploaded"}).json()["id"]
+    _upload_all_roles(runs_client, dataset_id)
+    run_id = runs_client.post("/runs", json={"source": "dataset", "dataset_id": dataset_id}).json()["id"]
+
+    runs_client.delete(f"/datasets/{dataset_id}/files/bank")
+
+    assert runs_client.get(f"/runs/{run_id}").status_code == 200

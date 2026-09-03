@@ -1,10 +1,12 @@
+import json
 from dataclasses import dataclass
 from typing import Literal
 
 import redis.asyncio as redis
 from pydantic import BaseModel
 
-from ingest.headers import claimed_fields, deterministic_mapping
+from ingest.examples import WORKED_EXAMPLES
+from ingest.headers import claimed_fields, deterministic_mapping, example_pairs
 from ingest.signature import header_signature
 from ingest.tabular import ParsedTable
 from llm.gateway import LlmGateway
@@ -12,7 +14,7 @@ from llm.models import BACKUP_MODEL, PRIMARY_MODEL
 from money.result import Err, Ok, Result
 
 MAPPER_MODEL = PRIMARY_MODEL
-MAPPER_SCHEMA_VERSION = "mapper-v1"
+MAPPER_SCHEMA_VERSION = "mapper-v2"
 SAMPLE_ROW_COUNT = 5
 
 SourceRole = Literal["ledger", "gateway", "settlement", "bank"]
@@ -79,16 +81,62 @@ class MappingCache:
         await self.redis_client.set(self._key(role, signature), mapping.model_dump_json(), ex=self.ttl_seconds)
 
 
+def _render_examples(role: SourceRole, available: set[str]) -> list[str]:
+    """The demonstration half of the prompt: whole files answered correctly,
+    then the header lexicon as labelled pairs.
+
+    Many examples rather than a few, because the mistakes worth preventing are
+    conventions -- a payout is the net, a lone signed amount column is the
+    credit -- and a convention is learned from cases, not from an instruction
+    that asserts it once.
+    """
+    lines = [
+        "Worked examples. These are complete correct answers for other files of this kind;",
+        "the file you are asked about comes after them.",
+        "",
+    ]
+    for example in WORKED_EXAMPLES[role]:
+        lines.append(f"# {example.note}")
+        lines.append(f"Headers: {', '.join(example.headers)}")
+        answer = {
+            "fields": [
+                {
+                    "source_header": field.source_header,
+                    "canonical_field": field.canonical_field,
+                    "confidence": field.confidence,
+                }
+                for field in example.fields
+            ]
+        }
+        lines.append(f"Answer: {json.dumps(answer)}")
+        lines.append("")
+
+    pairs = example_pairs(role, available)
+    if pairs:
+        lines.append("Further column names and the field each one means:")
+        lines.extend(f"  {header} -> {field}" for header, field in pairs)
+        lines.append("")
+    return lines
+
+
 def build_prompt(
     role: SourceRole, table: ParsedTable, unresolved: list[str] | None = None, taken: set[str] | None = None
 ) -> str:
     headers = unresolved if unresolved is not None else table.headers
-    available = [f for f in CANONICAL_FIELDS[role] if f not in (taken or set())]
-    lines = [
-        f"Map these uploaded column headers to the canonical '{role}' schema fields: {', '.join(available)}.",
-        f"Headers: {', '.join(headers)}",
-        "Sample rows:",
-    ]
+    claimed = taken or set()
+    available = [f for f in CANONICAL_FIELDS[role] if f not in claimed]
+
+    lines = [f"Map uploaded column headers to the canonical '{role}' schema.", ""]
+    lines.extend(_render_examples(role, set(available)))
+
+    lines.append(f"Now the file. Choose only from these fields: {', '.join(available)}.")
+    if claimed:
+        lines.append(
+            "Fields not listed are already assigned to other columns of this file and are not available: "
+            f"{', '.join(sorted(claimed))}."
+        )
+    lines.append(f"Headers: {', '.join(headers)}")
+    lines.append("Sample rows:")
     for row in table.rows[:SAMPLE_ROW_COUNT]:
         lines.append(str({header: row.get(header, "") for header in headers}))
     lines.append(

@@ -2,6 +2,7 @@
 
 import { use } from "react";
 import { Readout, StatGroup, StatRow, Ticks } from "@/components/Stat";
+import { InfoDot } from "@/components/InfoDot";
 import { Loading } from "@/components/Surface";
 import { formatRupees } from "@/lib/money";
 import { percentCss, ticksForRate } from "@/lib/scale";
@@ -152,9 +153,10 @@ export default function ScoreboardPage({ params }: { params: Promise<{ id: strin
   if (!run.metrics) return <PendingScoreboard />;
 
   const m = run.metrics;
-  // Precision, recall and false matches are only scored where a truth file
-  // exists; on a corpus without one they read as an em dash, and the note
-  // under the field says why rather than leaving a blank card unexplained.
+  // Precision, recall and false matches mean nothing without an answer key to
+  // score against, and an uploaded corpus has none. Rather than print three em
+  // dashes and explain them away, the panel is simply not there: a figure that
+  // cannot be measured is not a figure this surface should show.
   const scored = m.precision !== null && m.precision !== undefined;
   // Widest class first: the one carrying most of the corpus is the one whose
   // recall the headline rate is mostly made of.
@@ -214,7 +216,11 @@ export default function ScoreboardPage({ params }: { params: Promise<{ id: strin
           <span className="mono text-[12px] text-faint">VERIFIER-GATED</span>
         </div>
 
-        <div className="grid items-start gap-3 lg:grid-cols-3">
+        <div
+          className={
+            "grid items-start gap-3 " + (scored ? "lg:grid-cols-3" : "lg:grid-cols-2")
+          }
+        >
           <StatGroup title="Volume and speed">
             <StatRow
               label="Records"
@@ -252,32 +258,46 @@ export default function ScoreboardPage({ params }: { params: Promise<{ id: strin
             />
           </StatGroup>
 
-          <StatGroup title="Measured accuracy">
-            <StatRow
-              label="Precision"
-              value={formatOptionalRate(m.precision)}
-              note="Of what was tied, how much was right."
-            />
-            <StatRow
-              label="Recall"
-              value={formatOptionalRate(m.recall)}
-              note="Of what should have tied, how much did."
-            />
-            <StatRow
-              label="False matches"
-              value={m.false_matches ?? "—"}
-              tone={m.false_matches === 0 ? "positive" : m.false_matches ? "signal" : undefined}
-              note="Ties the check should not have written."
-            />
-          </StatGroup>
+          {scored && (
+            <StatGroup
+              title="Measured accuracy"
+              info={
+                <InfoDot label="How accuracy is measured">
+                  This run used a generated corpus, which ships with a truth file naming every group
+                  that genuinely belongs together. The engine never sees it; scoring compares what
+                  the run tied against what the answer key says, after the fact.
+                  <span className="mt-2 block">
+                    <b className="text-foreground">Precision</b> is how much of what was tied was
+                    right, <b className="text-foreground">recall</b> how much of what should have
+                    tied did, and <b className="text-foreground">false matches</b> counts ties the
+                    verifier should never have written.
+                  </span>
+                  <span className="mt-2 block">
+                    An uploaded dataset has no answer key, so this panel is not shown for one:
+                    nothing could honestly be scored against it.
+                  </span>
+                </InfoDot>
+              }
+            >
+              <StatRow
+                label="Precision"
+                value={formatOptionalRate(m.precision)}
+                note="Of what was tied, how much was right."
+              />
+              <StatRow
+                label="Recall"
+                value={formatOptionalRate(m.recall)}
+                note="Of what should have tied, how much did."
+              />
+              <StatRow
+                label="False matches"
+                value={m.false_matches ?? "—"}
+                tone={m.false_matches === 0 ? "positive" : m.false_matches ? "signal" : undefined}
+                note="Ties the check should not have written."
+              />
+            </StatGroup>
+          )}
         </div>
-
-        {!scored && (
-          <p className="text-[12.5px] leading-relaxed text-faint">
-            Precision, recall and false matches are scored against a truth file. This corpus carries
-            none, so they read as an em dash rather than a zero.
-          </p>
-        )}
       </section>
 
       {byClass.length > 0 && <ClassTable rows={byClass} />}

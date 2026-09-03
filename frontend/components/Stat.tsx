@@ -4,11 +4,22 @@
  * one row say nothing about which figures answer the same question, and a
  * card wide enough to hold "7,983 / 7,983 ms" is mostly empty for "2".
  */
-export function StatGroup({ title, children }: { title: string; children: React.ReactNode }) {
+export function StatGroup({
+  title,
+  info,
+  children,
+}: {
+  title: string;
+  /** An "i" beside the heading, for a panel whose figures need their
+   *  provenance stated rather than assumed. */
+  info?: React.ReactNode;
+  children: React.ReactNode;
+}) {
   return (
     <section className="panel flex flex-col">
       <header className="panel-head">
         <h3 className="legend legend-hi">{title}</h3>
+        {info && <span className="ml-auto">{info}</span>}
       </header>
       <dl className="flex flex-col">{children}</dl>
     </section>

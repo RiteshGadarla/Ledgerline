@@ -11,7 +11,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Health */
+        /**
+         * Health
+         * @description Liveness probe. No auth, no dependencies -- just confirms the process is up.
+         */
         get: operations["health_health_get"];
         put?: never;
         post?: never;
@@ -30,7 +33,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Register */
+        /**
+         * Register
+         * @description Creates a user and immediately logs them in, setting the session cookie.
+         */
         post: operations["register_auth_register_post"];
         delete?: never;
         options?: never;
@@ -47,7 +53,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Login */
+        /**
+         * Login
+         * @description Verifies credentials and starts a new session, setting the session cookie.
+         */
         post: operations["login_auth_login_post"];
         delete?: never;
         options?: never;
@@ -64,7 +73,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Logout */
+        /**
+         * Logout
+         * @description Revokes the caller's current session and clears the session cookie.
+         */
         post: operations["logout_auth_logout_post"];
         delete?: never;
         options?: never;
@@ -79,7 +91,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Me */
+        /**
+         * Me
+         * @description Returns the user identified by the request's session cookie.
+         */
         get: operations["me_auth_me_get"];
         put?: never;
         post?: never;
@@ -96,10 +111,19 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Runs Endpoint */
+        /**
+         * List Runs Endpoint
+         * @description Lists the caller's runs, newest first.
+         */
         get: operations["list_runs_endpoint_runs_get"];
         put?: never;
-        /** Create Run Endpoint */
+        /**
+         * Create Run Endpoint
+         * @description Enqueues a reconciliation run and returns immediately with it in
+         *     'queued' state. Poll GET /runs/{id} or GET /runs/{id}/stream for progress.
+         *     Reusing an idempotency_key returns the original run instead of enqueuing a
+         *     second one.
+         */
         post: operations["create_run_endpoint_runs_post"];
         delete?: never;
         options?: never;
@@ -114,7 +138,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Run Endpoint */
+        /**
+         * Get Run Endpoint
+         * @description Fetches one run's current state, metrics and forecast (the last two are
+         *     null until the run completes).
+         */
         get: operations["get_run_endpoint_runs__run_id__get"];
         put?: never;
         post?: never;
@@ -131,7 +159,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Run Result Endpoint */
+        /**
+         * Get Run Result Endpoint
+         * @description Fetches the full match result: matched groups and unmatched exceptions. 404 until the run completes.
+         */
         get: operations["get_run_result_endpoint_runs__run_id__result_get"];
         put?: never;
         post?: never;
@@ -148,7 +179,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Stream Run Endpoint */
+        /**
+         * Stream Run Endpoint
+         * @description Streams a run's state transitions as Server-Sent Events until it reaches a terminal state.
+         */
         get: operations["stream_run_endpoint_runs__run_id__stream_get"];
         put?: never;
         post?: never;
@@ -165,7 +199,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Export Run Csv Endpoint */
+        /**
+         * Export Run Csv Endpoint
+         * @description Exports a completed run's exceptions as a downloadable CSV. 404 until the run completes.
+         */
         get: operations["export_run_csv_endpoint_runs__run_id__export_csv_get"];
         put?: never;
         post?: never;
@@ -204,8 +241,34 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Exception Decisions Endpoint */
+        /**
+         * List Exception Decisions Endpoint
+         * @description Lists every human decision recorded against this run's exceptions.
+         */
         get: operations["list_exception_decisions_endpoint_runs__run_id__decisions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/runs/{run_id}/report.pdf": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export Run Report Endpoint
+         * @description The whole run as a document: verdict, run detail, the chain, every open
+         *     exception worst-first, the cash position, and what it takes to reproduce
+         *     the run. 404 until the run completes, for the same reason the CSV export
+         *     is: there is nothing to report on a run that has not finished.
+         */
+        get: operations["export_run_report_endpoint_runs__run_id__report_pdf_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -265,7 +328,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** List Datasets Endpoint */
+        /**
+         * List Datasets Endpoint
+         * @description Lists the caller's datasets, newest first.
+         */
         get: operations["list_datasets_endpoint_datasets_get"];
         put?: never;
         /**
@@ -289,11 +355,29 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Dataset Endpoint */
+        /**
+         * Get Dataset Endpoint
+         * @description Fetches one dataset, including per-role file status.
+         */
         get: operations["get_dataset_endpoint_datasets__dataset_id__get"];
         put?: never;
         post?: never;
-        delete?: never;
+        /**
+         * Delete Dataset Endpoint
+         * @description Deletes a dataset, every file in it, and every run made from it.
+         *
+         *     The runs go too, deliberately. A run's scoreboard cites records by id and
+         *     its exceptions quote evidence out of them; once the dataset is gone none
+         *     of that can be re-derived, and a reconciliation you cannot re-derive is
+         *     not evidence of anything. Better to remove it than to leave a figure on
+         *     screen that nothing backs any more.
+         *
+         *     A run still in flight goes too, which cancels it: the worker looks its run
+         *     up before doing any work and stops when it finds nothing. Refusing instead
+         *     would let a worker that died holding a queued run block its dataset from
+         *     ever being deleted.
+         */
+        delete: operations["delete_dataset_endpoint_datasets__dataset_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -328,7 +412,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Dataset File Records Endpoint */
+        /**
+         * Get Dataset File Records Endpoint
+         * @description Pages through a dataset file's canonical (post-mapping) records.
+         */
         get: operations["get_dataset_file_records_endpoint_datasets__dataset_id__files__role__records_get"];
         put?: never;
         post?: never;
@@ -345,11 +432,39 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Dataset File Raw Endpoint */
+        /**
+         * Get Dataset File Raw Endpoint
+         * @description Downloads the original file as uploaded for this role -- not the canonical records derived from it.
+         */
         get: operations["get_dataset_file_raw_endpoint_datasets__dataset_id__files__role__raw_get"];
         put?: never;
         post?: never;
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/datasets/{dataset_id}/files/{role}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Dataset File Endpoint
+         * @description Removes one role's file. The dataset survives one role lighter, and
+         *     drops out of "ready" because a run needs all four.
+         *
+         *     Existing runs are left alone: they were scored against the records as they
+         *     stood, and rewriting history to match a later edit would make every
+         *     scoreboard provisional.
+         */
+        delete: operations["delete_dataset_file_endpoint_datasets__dataset_id__files__role__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -364,7 +479,12 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Ask Endpoint */
+        /**
+         * Ask Endpoint
+         * @description Answers a question about a run, grounded in that run's data. `degraded`
+         *     is true when no model could be reached (quota exhausted or all attempts
+         *     failed) and a fallback answer was returned instead.
+         */
         post: operations["ask_endpoint_ask_post"];
         delete?: never;
         options?: never;
@@ -417,14 +537,20 @@ export interface components {
         };
         /** Body_preview_endpoint_data_preview_post */
         Body_preview_endpoint_data_preview_post: {
-            /** Role */
+            /**
+             * Role
+             * @description One of 'ledger', 'gateway', 'settlement', 'bank'.
+             */
             role: string;
             /** File */
             file: string;
         };
         /** Body_upload_dataset_file_endpoint_datasets__dataset_id__files_post */
         Body_upload_dataset_file_endpoint_datasets__dataset_id__files_post: {
-            /** Role */
+            /**
+             * Role
+             * @description One of 'ledger', 'gateway', 'settlement', 'bank'.
+             */
             role: string;
             /**
              * Mapping
@@ -436,7 +562,10 @@ export interface components {
         };
         /** Body_validate_endpoint_data_validate_post */
         Body_validate_endpoint_data_validate_post: {
-            /** Role */
+            /**
+             * Role
+             * @description One of 'ledger', 'gateway', 'settlement', 'bank'.
+             */
             role: string;
             /**
              * Mapping
@@ -488,6 +617,17 @@ export interface components {
             seed?: number | null;
             /** Size */
             size?: number | null;
+        };
+        /**
+         * DatasetDeletedOut
+         * @description What a delete removed, stated rather than implied: a caller that asked
+         *     to remove one dataset is entitled to know how many runs went with it.
+         */
+        DatasetDeletedOut: {
+            /** Dataset Id */
+            dataset_id: string;
+            /** Runs Deleted */
+            runs_deleted: number;
         };
         /** DatasetFileOut */
         DatasetFileOut: {
@@ -543,6 +683,11 @@ export interface components {
             created_at: string;
             /** Files */
             files: components["schemas"]["DatasetFileOut"][];
+            /**
+             * Run Count
+             * @default 0
+             */
+            run_count: number;
         };
         /** DatasetRecordsOut */
         DatasetRecordsOut: {
@@ -743,9 +888,15 @@ export interface components {
             dataset_id?: string | null;
             /** Size */
             size?: number | null;
-            /** Mutations */
+            /**
+             * Mutations
+             * @description Adversarial corruptions to apply to the corpus before matching, e.g. 'shift_date:60' or 'alter_amount:-250000'.
+             */
             mutations?: string[] | null;
-            /** Idempotency Key */
+            /**
+             * Idempotency Key
+             * @description Replaying the same key returns the existing run instead of starting a new one.
+             */
             idempotency_key?: string | null;
         };
         /** RunMetrics */
@@ -1121,14 +1272,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description text/event-stream of {state, error?} frames, replaying missed transitions on connect. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": unknown;
-                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -1152,14 +1301,12 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Successful Response */
+            /** @description The run's exceptions as a CSV attachment. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": unknown;
-                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -1227,6 +1374,35 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["DecisionOut"][];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    export_run_report_endpoint_runs__run_id__report_pdf_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The run's full report as a branded PDF attachment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {
@@ -1389,6 +1565,37 @@ export interface operations {
             };
         };
     };
+    delete_dataset_endpoint_datasets__dataset_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DatasetDeletedOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     upload_dataset_file_endpoint_datasets__dataset_id__files_post: {
         parameters: {
             query?: never;
@@ -1471,13 +1678,43 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
+            /** @description The original uploaded file, byte-for-byte, as an attachment download. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_dataset_file_endpoint_datasets__dataset_id__files__role__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dataset_id: string;
+                role: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
             /** @description Successful Response */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DatasetOut"];
                 };
             };
             /** @description Validation Error */
@@ -1537,14 +1774,12 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
+            /** @description text/event-stream of {type, ...} frames; render only the final 'done' event's answer. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content: {
-                    "application/json": unknown;
-                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

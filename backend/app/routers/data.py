@@ -9,7 +9,7 @@ from app.ingest_upload import parse_upload, require_role
 from app.redis_client import get_redis
 from app.settings import get_settings
 from db.tenancy import UserRecord
-from ingest.mapper import CANONICAL_FIELDS, MappingCache, MappingResponse, map_schema
+from ingest.mapper import CANONICAL_FIELDS, MAPPER_SCHEMA_VERSION, MappingCache, MappingResponse, map_schema
 from ingest.validate import build_records
 from llm.factory import build_gateway
 from llm.gateway import LlmGateway
@@ -51,7 +51,9 @@ def get_mapper_gateway(request: Request) -> LlmGateway:
     """A dependency (rather than a plain function call) so tests can swap in
     a FakeClient-backed gateway via app.dependency_overrides instead of ever
     reaching the real Gemini API."""
-    return build_gateway(get_redis(request), schema_version="mapper-v1", api_key=get_settings().gemini_api_key)
+    return build_gateway(
+        get_redis(request), schema_version=MAPPER_SCHEMA_VERSION, api_key=get_settings().gemini_api_key
+    )
 
 
 @router.post("/preview", response_model=PreviewOut)

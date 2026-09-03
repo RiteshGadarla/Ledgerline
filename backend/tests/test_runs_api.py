@@ -294,3 +294,53 @@ def test_get_run_result_across_users_is_404_not_403(runs_client: TestClient) -> 
     response = runs_client.get(f"/runs/{run_id}/result")
 
     assert response.status_code == 404
+
+
+def test_report_pdf_is_404_until_the_run_has_a_result(runs_client: TestClient) -> None:
+    _register(runs_client, "report-early")
+    run_id = runs_client.post("/runs", json={"source": "demo", "seed": 1001, "size": 50}).json()["id"]
+
+    assert runs_client.get(f"/runs/{run_id}/report.pdf").status_code == 404
+
+
+async def test_report_pdf_downloads_once_the_run_is_complete(
+    runs_client: TestClient, db_session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    _register(runs_client, "report-reader")
+    run_id = runs_client.post("/runs", json={"source": "demo", "seed": 1001, "size": 50}).json()["id"]
+    result_json = json.dumps({"groups": [], "exceptions": [], "output_hash": "deadbeef"})
+    metrics_json = json.dumps(
+        {
+            "auto_rate": 1.0,
+            "assist_rate": 0.0,
+            "open_rate": 0.0,
+            "records": 0,
+            "open_exceptions": 0,
+            "amount_at_risk": 0,
+            "throughput_rps": 0.0,
+            "p50_ms": 0,
+            "p95_ms": 0,
+            "llm_requests": 0,
+            "llm_tokens": 0,
+            "llm_degraded": False,
+            "output_hash": "deadbeef",
+        }
+    )
+    async with db_session_factory() as db:
+        await complete_run(db, run_id, result_json, metrics_json)
+
+    response = runs_client.get(f"/runs/{run_id}/report.pdf")
+
+    assert response.status_code == 200, response.text
+    assert response.headers["content-type"] == "application/pdf"
+    assert f'filename="ledgerline-run-{run_id[:8]}.pdf"' in response.headers["content-disposition"]
+    assert response.content.startswith(b"%PDF-")
+
+
+def test_report_pdf_for_another_users_run_is_404(runs_client: TestClient) -> None:
+    _register(runs_client, "report-owner")
+    run_id = runs_client.post("/runs", json={"source": "demo", "seed": 1001, "size": 50}).json()["id"]
+    runs_client.post("/auth/logout")
+    _register(runs_client, "report-stranger")
+
+    assert runs_client.get(f"/runs/{run_id}/report.pdf").status_code == 404

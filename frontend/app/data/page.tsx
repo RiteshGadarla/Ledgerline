@@ -56,6 +56,29 @@ function DataSurface() {
   const [datasets, setDatasets] = useState<DatasetOut[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState<"generate" | "upload" | null>(null);
+  const [deleting, setDeleting] = useState<DatasetOut | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  async function confirmDelete(dataset: DatasetOut): Promise<void> {
+    setDeleteBusy(true);
+    setDeleteError(null);
+    const { error } = await api.DELETE("/datasets/{dataset_id}", {
+      params: { path: { dataset_id: dataset.id } },
+    });
+    setDeleteBusy(false);
+    if (error) {
+      // FastAPI's 422 body carries a list of field errors rather than a
+      // sentence, so only a real string is shown as one.
+      setDeleteError(
+        typeof error.detail === "string" ? error.detail : "Could not delete that dataset.",
+      );
+      return;
+    }
+    if (selectedId === dataset.id) setSelectedId(null);
+    setDeleting(null);
+    await refreshDatasets();
+  }
 
   async function refreshDatasets(): Promise<void> {
     const { data } = await api.GET("/datasets");
@@ -155,6 +178,9 @@ function DataSurface() {
                     <th scope="col">Files</th>
                     <th scope="col">Status</th>
                     <th scope="col">Created</th>
+                    <th scope="col">
+                      <span className="sr-only">Delete</span>
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
@@ -177,6 +203,38 @@ function DataSurface() {
                         <td className="text-muted tabular">
                           {formatTimestamp(dataset.created_at)}
                         </td>
+                        <td className="w-px">
+                          {/* The row itself selects; this must not, or asking
+                              to delete would open the thing being deleted. */}
+                          <button
+                            type="button"
+                            aria-label={`Delete ${dataset.name}`}
+                            title={`Delete ${dataset.name}`}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setDeleteError(null);
+                              setDeleting(dataset);
+                            }}
+                            className="btn btn-icon !h-7 !min-h-7 !w-7 !border-transparent !bg-transparent text-faint hover:!border-signal hover:text-signal"
+                          >
+                            <svg
+                              width="15"
+                              height="15"
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="1.7"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                              aria-hidden
+                            >
+                              <path d="M4 7h16" />
+                              <path d="M10 11v6M14 11v6" />
+                              <path d="M6 7l1 13h10l1-13" />
+                              <path d="M9 7V4h6v3" />
+                            </svg>
+                          </button>
+                        </td>
                       </tr>
                     );
                   })}
@@ -186,6 +244,65 @@ function DataSurface() {
           )}
         </div>
       </section>
+
+      {deleting && (
+        <Modal
+          title="Delete dataset"
+          onClose={() => (deleteBusy ? undefined : setDeleting(null))}
+          footer={
+            <>
+              <button
+                type="button"
+                onClick={() => setDeleting(null)}
+                disabled={deleteBusy}
+                className="btn btn-sm"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmDelete(deleting)}
+                disabled={deleteBusy}
+                className="btn btn-sm !border-signal !bg-signal !text-white hover:!bg-[color:var(--signal)]"
+              >
+                {deleteBusy ? "Deleting…" : "Delete permanently"}
+              </button>
+            </>
+          }
+        >
+          <div className="flex flex-col gap-3">
+            <p className="text-sm">
+              Delete <span className="font-medium">{deleting.name}</span>, its four files, and
+              everything derived from them?
+            </p>
+            {/* Said before it happens, not after: a run cites records by id,
+                and once the dataset is gone its scoreboard cannot be
+                re-derived from anything. */}
+            <ul className="flex flex-col gap-1.5 border-l-2 border-signal/60 pl-3 text-[13px] leading-snug text-muted">
+              <li>
+                <span className="mono text-[12px] text-signal">
+                  {deleting.files.filter((f) => f.valid_count > 0).length} file(s)
+                </span>{" "}
+                and every record parsed from them.
+              </li>
+              <li>
+                <span className="mono text-[12px] text-signal">
+                  {deleting.run_count} run(s)
+                </span>{" "}
+                made from this dataset, with their scoreboards, exceptions and decisions. A run whose
+                records no longer exist cannot be re-derived, so it goes too.
+              </li>
+              <li>The original uploads. Download them first if you need them.</li>
+            </ul>
+            <p className="text-[13px] text-faint">This cannot be undone.</p>
+            {deleteError && (
+              <p role="alert" className="text-[13px] text-signal">
+                {deleteError}
+              </p>
+            )}
+          </div>
+        </Modal>
+      )}
 
       {selectedId && (
         <DatasetDetail
@@ -604,6 +721,8 @@ function DatasetDetail({
   const [offset, setOffset] = useState(0);
   const [pageSize, setPageSize] = useState(RECORDS_PAGE_SIZE);
   const [replacing, setReplacing] = useState(false);
+  const [confirmingFileDelete, setConfirmingFileDelete] = useState(false);
+  const [fileDeleteBusy, setFileDeleteBusy] = useState(false);
 
   async function refresh(): Promise<void> {
     const { data } = await api.GET("/datasets/{dataset_id}", {
@@ -809,8 +928,58 @@ function DatasetDetail({
                   {activeFile ? "Replace file" : "Upload file"}
                 </button>
               )}
+              {canReplace && activeRole && activeFile && !replacing && (
+                <button
+                  type="button"
+                  onClick={() => setConfirmingFileDelete(true)}
+                  className="btn btn-sm !border-signal/50 !text-signal hover:!bg-signal-bg"
+                >
+                  Delete file
+                </button>
+              )}
             </span>
           </div>
+
+          {confirmingFileDelete && activeRole && (
+            <div className="shrink-0 border-b border-hairline bg-signal-bg px-5 py-3">
+              <p className="text-[13.5px] font-medium text-signal">
+                Delete the {activeRole} file?
+              </p>
+              <p className="mt-1 text-[13px] leading-snug text-muted">
+                Its rows and the original upload go. The dataset itself stays, one role lighter, and
+                drops out of ready because a run needs all four. Runs already scored against this
+                file are left alone -- they were measured on the records as they stood.
+              </p>
+              <div className="mt-2.5 flex gap-2">
+                <button
+                  type="button"
+                  disabled={fileDeleteBusy}
+                  onClick={async () => {
+                    setFileDeleteBusy(true);
+                    await api.DELETE("/datasets/{dataset_id}/files/{role}", {
+                      params: { path: { dataset_id: datasetId, role: activeRole } },
+                    });
+                    setFileDeleteBusy(false);
+                    setConfirmingFileDelete(false);
+                    refresh();
+                    onChanged();
+                    void loadRecords(activeRole, 0, pageSize);
+                  }}
+                  className="btn btn-sm !border-signal !bg-signal !text-white"
+                >
+                  {fileDeleteBusy ? "Deleting…" : "Delete file"}
+                </button>
+                <button
+                  type="button"
+                  disabled={fileDeleteBusy}
+                  onClick={() => setConfirmingFileDelete(false)}
+                  className="btn btn-sm"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
 
           {/* Capped, with its own scroll: a wide file's mapping table must not
               push the records out of the dialog. */}

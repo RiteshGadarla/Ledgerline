@@ -176,3 +176,22 @@ def deterministic_mapping(role: "SourceRole", headers: list[str]) -> dict[str, s
 def claimed_fields(mapping: dict[str, str | None]) -> set[str]:
     """The canonical fields a mapping has already spoken for."""
     return {field for field in mapping.values() if field is not None}
+
+
+def example_pairs(role: "SourceRole", available: set[str] | None = None) -> list[tuple[str, str]]:
+    """The table as labelled examples: (header name, canonical field).
+
+    The same curated names the resolver matches on, handed to the prompt as
+    demonstrations. Deriving them from `_FIELD_HEADERS` rather than writing a
+    second list keeps the examples and the rules from ever disagreeing --
+    there is only one place a name is recorded.
+
+    `available` filters to fields the file has not already resolved, so the
+    examples never demonstrate a choice the model is not being offered.
+    """
+    pairs: list[tuple[str, str]] = []
+    for field, headers in _FIELD_HEADERS[role].items():
+        if available is not None and field not in available:
+            continue
+        pairs.extend((header, field) for header in headers)
+    return pairs

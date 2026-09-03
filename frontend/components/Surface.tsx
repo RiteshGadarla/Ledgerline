@@ -60,7 +60,15 @@ export function ContextBar({
 
 export function Stage({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-[clamp(0.875rem,1.6vw,1.625rem)]">
+    // `[&>*]:shrink-0` is load-bearing. This is a flex column that scrolls, and
+    // a flex item whose own `overflow` is not `visible` has an automatic
+    // minimum size of 0 -- so a panel written as `panel overflow-hidden` (the
+    // house idiom for a table with rounded corners) shrinks to whatever height
+    // is left instead of overflowing, clips its rows, and leaves nothing to
+    // scroll: the stage thinks it fits. Long tables on the Chain surface were
+    // unreachable below the fold because of it. Children of a scroll container
+    // keep their natural height; the container is what scrolls.
+    <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-[clamp(0.875rem,1.6vw,1.625rem)] [&>*]:shrink-0">
       {children}
     </div>
   );

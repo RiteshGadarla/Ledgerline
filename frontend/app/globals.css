@@ -615,6 +615,18 @@
     color: var(--faint);
     white-space: nowrap;
   }
+  /* A header that stays put while its own table scrolls. Opt-in, because it
+     only means anything when the table is inside a box with a bounded height:
+     sticky resolves against the nearest scrolling ancestor, so on a table that
+     grows with the page the header would pin to a box that never scrolls and
+     nothing would appear to happen. `border-collapse: separate` above is what
+     keeps the header's bottom rule painted while it is pinned. */
+  .grid-table-sticky thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+  }
+
   .grid-table tbody td,
   .tbl tbody td {
     padding: 0.5625rem 0.75rem;

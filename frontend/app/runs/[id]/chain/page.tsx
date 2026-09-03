@@ -87,9 +87,14 @@ export default function ChainPage({ params }: { params: Promise<{ id: string }> 
         </span>
       </div>
 
-      <section className="panel overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="grid-table">
+      {/* The table takes the height the stage has left and scrolls inside it,
+          so its header can stay pinned: sticky resolves against the nearest
+          scrolling ancestor, and on a panel that simply grows with the page
+          there is nothing for the header to stick to. `min-h` keeps the rows
+          usable on a short viewport, where the stage scrolls instead. */}
+      <section className="panel flex min-h-[18rem] flex-1 flex-col overflow-hidden">
+        <div className="min-h-0 flex-1 overflow-auto">
+          <table className="grid-table grid-table-sticky">
             <thead>
               <tr>
                 <th scope="col">Invoice</th>
@@ -107,10 +112,12 @@ export default function ChainPage({ params }: { params: Promise<{ id: string }> 
               ))}
             </tbody>
           </table>
+          {groups.length === 0 && (
+            <p className="px-5 py-10 text-center text-sm text-muted">
+              No matched chains for this filter.
+            </p>
+          )}
         </div>
-        {groups.length === 0 && (
-          <p className="px-5 py-10 text-center text-sm text-muted">No matched chains for this filter.</p>
-        )}
       </section>
 
       <p className="text-xs leading-relaxed text-faint">

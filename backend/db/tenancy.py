@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Literal, cast
 
-from sqlalchemy import CursorResult, select, update
+from sqlalchemy import CursorResult, delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -222,9 +222,7 @@ async def create_run(
 
 
 async def get_run_by_idempotency_key(db: AsyncSession, user_id: str, idempotency_key: str) -> RunRecord | None:
-    result = await db.execute(
-        select(Run).where(Run.user_id == user_id, Run.idempotency_key == idempotency_key)
-    )
+    result = await db.execute(select(Run).where(Run.user_id == user_id, Run.idempotency_key == idempotency_key))
     run = result.scalar_one_or_none()
     return _to_run_record(run) if run is not None else None
 
@@ -238,9 +236,7 @@ async def get_run_for_user(db: AsyncSession, run_id: str, user_id: str) -> RunRe
 
 
 async def list_runs_for_user(db: AsyncSession, user_id: str, limit: int = 50) -> list[RunRecord]:
-    result = await db.execute(
-        select(Run).where(Run.user_id == user_id).order_by(Run.created_at.desc()).limit(limit)
-    )
+    result = await db.execute(select(Run).where(Run.user_id == user_id).order_by(Run.created_at.desc()).limit(limit))
     return [_to_run_record(run) for run in result.scalars()]
 
 
@@ -521,3 +517,55 @@ async def recompute_dataset_status(db: AsyncSession, dataset_id: str) -> Dataset
     )
     await db.commit()
     return status
+
+
+async def count_runs_for_dataset(db: AsyncSession, dataset_id: str, user_id: str) -> int:
+    """How many of the caller's runs were made from this dataset, so a
+    confirmation can say what deleting it will actually cost."""
+    result = await db.execute(
+        select(func.count()).select_from(Run).where(Run.dataset_id == dataset_id, Run.user_id == user_id)
+    )
+    return int(result.scalar_one())
+
+
+async def delete_dataset_for_user(db: AsyncSession, dataset_id: str, user_id: str) -> int:
+    """Delete a dataset, its files, and every run made from it. Returns the
+    number of runs removed.
+
+    `Run.dataset_id` is a plain column rather than a foreign key -- a run may
+    cite a demo corpus that was never persisted as a dataset -- so nothing
+    cascades to the runs on its own and they are deleted here explicitly.
+    Leaving them would strand a run whose scoreboard cites records that no
+    longer exist, which is worse than removing it: a reconciliation you cannot
+    re-derive is not evidence of anything.
+
+    The files do cascade, from the foreign key on `dataset_files.dataset_id`,
+    as do each deleted run's exception decisions. One transaction, so a
+    failure part-way leaves the dataset and its runs intact together.
+
+    A run still in flight is deleted along with the rest, which cancels it:
+    the worker looks its run up before doing any work, finds nothing, logs and
+    stops. Refusing instead would mean a worker that died holding a queued run
+    could block its dataset from ever being deleted.
+    """
+    runs = await db.execute(delete(Run).where(Run.dataset_id == dataset_id, Run.user_id == user_id).returning(Run.id))
+    deleted_runs = len(runs.scalars().all())
+    await db.execute(delete(Dataset).where(Dataset.id == dataset_id, Dataset.user_id == user_id))
+    await db.commit()
+    return deleted_runs
+
+
+async def delete_dataset_file(db: AsyncSession, dataset_id: str, role: DatasetRole) -> bool:
+    """Remove one role's file from a dataset. Returns False if there was none.
+
+    The dataset itself survives, one role lighter; the caller recomputes its
+    status, which will drop it out of "ready" since a run needs all four.
+    """
+    result = await db.execute(
+        delete(DatasetFile)
+        .where(DatasetFile.dataset_id == dataset_id, DatasetFile.role == role)
+        .returning(DatasetFile.id)
+    )
+    deleted = result.scalar_one_or_none() is not None
+    await db.commit()
+    return deleted

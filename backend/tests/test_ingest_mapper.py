@@ -2,6 +2,7 @@ import json
 
 import redis.asyncio as redis
 
+from ingest.examples import WORKED_EXAMPLES
 from ingest.mapper import CANONICAL_FIELDS, MappingCache, build_prompt, map_schema
 from ingest.tabular import ParsedTable
 from llm.cache import ResponseCache
@@ -154,3 +155,45 @@ async def test_missing_fixture_degrades_to_err(redis_client: redis.Redis) -> Non
 def test_canonical_fields_cover_all_roles() -> None:
     assert set(CANONICAL_FIELDS.keys()) == {"ledger", "gateway", "settlement", "bank"}
     assert "id" in CANONICAL_FIELDS["bank"]
+
+
+def test_the_prompt_carries_many_worked_examples_before_the_question() -> None:
+    """Many-shot, not zero-shot: whole files answered correctly, plus the
+    header lexicon, in front of every question actually asked."""
+    table = _opaque_table([_OPAQUE_ROW])
+    prompt = build_prompt("bank", table, unresolved=list(table.headers), taken=set())
+
+    assert "Worked examples" in prompt
+    # Both worked examples for the role, answers included.
+    assert prompt.count("Answer: {") == len(WORKED_EXAMPLES["bank"])
+    assert '"canonical_field": "credit"' in prompt
+    # The lexicon, rendered as labelled pairs.
+    assert "  deposit -> credit" in prompt
+    assert "  withdrawal -> debit" in prompt
+    # The file being asked about comes last, after the demonstrations.
+    assert prompt.index("Worked examples") < prompt.index("Now the file")
+    assert prompt.rstrip().endswith("with a confidence in [0, 1].")
+
+
+def test_the_settlement_examples_teach_that_a_payout_is_the_net() -> None:
+    """The mistake this corpus exists to prevent: a real upload had its
+    `gross_amount` mapped onto the payout, putting every bank comparison off
+    by exactly the fee. The demonstration says otherwise, in full."""
+    table = ParsedTable(headers=["gross_amount"], rows=[{"gross_amount": "25637.14"}])
+    prompt = build_prompt("settlement", table, unresolved=["gross_amount"], taken=set())
+
+    assert '{"source_header": "Gross", "canonical_field": null' in prompt
+    assert '{"source_header": "Net Credit", "canonical_field": "payout"' in prompt
+
+
+def test_examples_never_demonstrate_a_field_already_taken() -> None:
+    """A file that has resolved its payout is not shown examples mapping other
+    headers onto the payout: the demonstrations agree with the instruction
+    about which fields are still on offer."""
+    table = ParsedTable(headers=["mystery"], rows=[{"mystery": "1"}])
+    taken = {"id", "utr", "payout", "fees", "tax", "settled_at", "payment_ids"}
+    prompt = build_prompt("settlement", table, unresolved=["mystery"], taken=taken)
+
+    assert "Choose only from these fields: adjustments." in prompt
+    assert "-> payout" not in prompt.split("Further column names")[-1]
+    assert "already assigned to other columns" in prompt
