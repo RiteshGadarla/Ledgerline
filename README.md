@@ -22,16 +22,47 @@ Key engineering property: **the LLM never does arithmetic and never writes a mat
 
 ## Architecture
 
-```
-Next.js (frontend)              FastAPI (backend)                Worker (arq)
---------------------            --------------------             ---------------
-Client components   --HTTP-->   routers + deps        --enqueue-> run pipeline
-SSE-driven run log   <--SSE---  run stream (DB row     <-pub/sub-  progress events
-Generated TS client              + redis pub/sub)                    |
-                                 auth, tenancy                       v
-                                                          engine (pure) -> verifier -> metrics
-                                                                   ^
-                                                          llm gateway (governed, cached)
+```mermaid
+flowchart LR
+    subgraph client["Browser · one origin"]
+        UI["Next.js<br/>seven surfaces"]
+        PROXY["same-origin<br/>API proxy"]
+    end
+
+    subgraph apiproc["API · FastAPI"]
+        ROUTES["routers<br/>auth · tenancy"]
+        INGEST["ingest/<br/>CSV · XLSX · PDF"]
+        STREAM["run stream<br/>SSE"]
+    end
+
+    subgraph workerproc["Worker · arq"]
+        PIPE["run_pipeline<br/>five stages"]
+        ENGINE["engine/<br/>four passes, pure"]
+        VERIFY["verifier<br/>integer paise"]
+        METRICS["metrics +<br/>exception list"]
+    end
+
+    subgraph stores["Stores"]
+        PG[("PostgreSQL")]
+        REDIS[("Redis<br/>queue · pub-sub")]
+    end
+
+    GEMINI["Gemini<br/>governed, cached"]
+
+    UI --> PROXY
+    PROXY -->|"HTTP"| ROUTES
+    ROUTES --> INGEST
+    INGEST -->|"map columns"| GEMINI
+    INGEST -->|"records"| PG
+    ROUTES --> PG
+    ROUTES -->|"enqueue"| REDIS
+    REDIS -->|"job"| PIPE
+    PIPE --> ENGINE --> VERIFY --> METRICS -->|"result"| PG
+    PIPE -->|"triage leftovers"| GEMINI
+    GEMINI -.->|"proposals only,<br/>never arithmetic"| VERIFY
+    PIPE -->|"publish state"| REDIS
+    REDIS -->|"pub-sub"| STREAM
+    STREAM -->|"SSE"| UI
 ```
 
 - **`backend/engine`** is pure Python (no I/O, no clock, no randomness, no DB), a deterministic function from corpus to result.
@@ -84,8 +115,36 @@ make frontend    # Next.js dev server        (localhost:3000)
 
 Without `DATABASE_URL`/`REDIS_URL` configured, the backend still starts and serves `/health`; any route needing the database or Redis returns `503`. See [`backend/README.md`](backend/README.md) and [`frontend/README.md`](frontend/README.md) for details, environment variables, and validation commands (`ruff`, `mypy`, `pytest`, `lint-imports`).
 
+## Measured results
+
+The track's bar is throughput, measured accuracy and an honest exception list, so here are all three, on corpora the engine was never developed against. `backend/scripts/benchmark.py` sweeps 30 held-out seeds (5001-5030, disjoint from the three golden seeds pinned in `scripts/eval.py`) at three sizes, then repeats the sweep once per corruption the mutation engine can apply. Reproduce with `cd backend && uv run python -m scripts.benchmark`.
+
+| Corpus                             | Runs | Records | Precision | Recall | False matches | Auto | Exceptions | Throughput |
+|------------------------------------|-----:|--------:|----------:|-------:|--------------:|-----:|-----------:|-----------:|
+| clean · 150 records                |   30 |   9,560 |     1.000 |  0.892 |             0 | 0.884 |       37.7 | 571,365/s |
+| clean · 600 records                |   30 |  38,248 |     1.000 |  0.973 |             0 | 0.970 |       38.5 | 582,348/s |
+| clean · 2400 records               |   30 | 152,814 |     1.000 |  0.993 |             0 | 0.992 |       43.4 | 384,545/s |
+| corrupted · duplicate_payment      |   30 |   9,590 |     1.000 |  0.892 |             0 | 0.878 |       38.7 | 582,551/s |
+| corrupted · shift_date:45          |   30 |   9,560 |     1.000 |  0.788 |             0 | 0.777 |       71.7 | 465,692/s |
+| corrupted · alter_amount:-150000   |   30 |   9,560 |     1.000 |  0.791 |             0 | 0.764 |       75.3 | 479,130/s |
+| corrupted · delete_bank_line       |   30 |   9,530 |     1.000 |  0.788 |             0 | 0.777 |       70.7 | 484,144/s |
+| corrupted · inject_unrelated_credit |   30 |   9,590 |     1.000 |  0.892 |             0 | 0.884 |       38.7 | 576,191/s |
+| corrupted · scramble_narration     |   30 |   9,560 |     1.000 |  0.784 |             0 | 0.769 |       74.1 | 479,412/s |
+| corrupted · split_payment          |   30 |   9,590 |     1.000 |  0.791 |             0 | 0.759 |       76.3 | 463,755/s |
+
+300 runs · 267,602 records · 0 false matches across every run.
+Throughput times engine.match() alone: no ingestion, no LLM triage, no database.
+
+Read the two halves together, because the second one is the point:
+
+- **Precision is 1.000 in every row, and 300 runs over 267,602 records produced zero false matches.** Nothing was ever tied out that the truth file says does not belong together. That is the verifier doing its job: a proposal that fails its recompute in integer paise becomes an exception, never a match.
+- **Recall falls under sabotage, and that is the honest outcome.** Corrupting a date, an amount or a narration genuinely destroys the evidence a match needs. The engine answers by filing exceptions -- about 38 on a clean 150-record corpus, about 75 once records have been corrupted -- rather than by guessing. An engine whose recall held steady under sabotage would be inventing matches, and its precision would say so.
+- **Recall improves with corpus size** (0.892 at 150 records, 0.993 at 2400): a larger batch carries more of the counterpart records a chain needs to close, so the unmatchable tail is a smaller share of it.
+
+The throughput column times `engine.match()` alone -- no ingestion, no LLM triage, no database -- because a throughput number that quietly includes or excludes the slow parts is advertising rather than measurement. End-to-end wall clock for a real run, persistence and assisted triage included, is reported per run on the Scoreboard.
+
 ## Status
 
 Runs work end to end against both a generated corpus and an uploaded dataset. The adversarial mutation engine is in (`backend/datagen/mutations.py`): seven typed corruptions, each applied to a copy of the corpus with the ground truth corrupted in lockstep, so precision, recall and false matches stay measurable after the sabotage. They are opt-in from the Run console and recorded on the run, so a run's URL reproduces exactly what was tested.
 
-Still outstanding against the plan: no CI, no frontend test suite (Playwright/vitest/axe), no Dockerfiles or full-topology compose, no throughput benchmark baseline, and `/health` is a stub. See the "Known, documented gaps" section in [`frontend/README.md`](frontend/README.md).
+Still outstanding against the plan: no CI, no frontend test suite (Playwright/vitest/axe), no Dockerfiles or full-topology compose, and `/health` is a stub. See the "Known, documented gaps" section in [`frontend/README.md`](frontend/README.md).
