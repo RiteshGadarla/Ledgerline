@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { RequireAuth } from "@/components/RequireAuth";
 import { UserBadge } from "@/components/UserBadge";
+import { startTour } from "@/components/Tour";
 import { StatusBadge } from "@/components/StatusBadge";
 import { EmptyState, Loading, PanelHead, Surface } from "@/components/Surface";
 import { api } from "@/lib/api/client";
@@ -69,6 +70,7 @@ function RunSurface() {
   const [error, setError] = useState<string | null>(null);
   const [runs, setRuns] = useState<RunOut[] | null>(null);
   const [mutations, setMutations] = useState<string[]>([]);
+  const [tourDismissed, setTourDismissed] = useState(false);
 
   useEffect(() => {
     api.GET("/runs").then(({ data }) => setRuns(data ?? []));
@@ -87,6 +89,10 @@ function RunSurface() {
 
   const datasetById = Object.fromEntries((datasets ?? []).map((d) => [d.id, d]));
   const selected = datasetById[datasetId];
+  // Both lists have loaded and neither has anything behind it yet: this
+  // account has never run the engine.
+  const firstRun =
+    !tourDismissed && runs !== null && runs.length === 0 && datasets !== null && datasets.length > 0;
 
   async function closeTheBooks(event: React.FormEvent) {
     event.preventDefault();
@@ -121,6 +127,31 @@ function RunSurface() {
         { label: "ENGINE", value: "verifier-gated" },
       ]}
     >
+      {/* Offered once. A paragraph explaining a console is not the same as
+          being walked through one, so this starts the tour rather than
+          replacing it: the steps point at the real controls and the run is
+          started by pressing the real button. */}
+      {firstRun && (
+        <section className="panel flex flex-wrap items-center gap-x-5 gap-y-3 border-l-2 border-l-readout-hi p-4">
+          <div className="min-w-0 flex-1 basis-80">
+            <span className="legend legend-hi">First time here?</span>
+            <p className="mt-2 max-w-[70ch] text-[14px] leading-relaxed text-muted">
+              Your account opens with a demo corpus of 400 records, 15% of them seeded difficulties,
+              shipped with an answer key the engine never sees. Take the tour and it will walk you
+              through closing the books on it, one control at a time.
+            </p>
+          </div>
+          <div className="flex shrink-0 gap-2">
+            <button type="button" onClick={() => startTour()} className="btn btn-primary">
+              Take the tour
+            </button>
+            <button type="button" onClick={() => setTourDismissed(true)} className="btn btn-ghost">
+              Not now
+            </button>
+          </div>
+        </section>
+      )}
+
       {/* The one action this surface exists for, given its own instrument. */}
       <section className="panel">
         <PanelHead legend="Close the books" note="DETERMINISTIC · SEEDED · VERIFIER-GATED" />
@@ -140,7 +171,7 @@ function RunSurface() {
             />
           ) : (
             <form onSubmit={closeTheBooks} className="flex flex-wrap items-end gap-4">
-              <div className="min-w-64 flex-1">
+              <div className="min-w-64 flex-1" data-tour="run-dataset">
                 <label className="legend" htmlFor="run-dataset">
                   Dataset
                 </label>
@@ -180,6 +211,7 @@ function RunSurface() {
 
               <button
                 type="submit"
+                data-tour="run-submit"
                 disabled={submitting || !datasetId}
                 className="btn btn-primary btn-lg"
               >
@@ -189,7 +221,7 @@ function RunSurface() {
               {/* Sabotage is opt-in and never the default: a clean run is what
                   the console is for, and a corrupted one has to be a choice
                   the operator made on purpose and can see they made. */}
-              <div className="w-full border-t border-hairline pt-4">
+              <div className="w-full border-t border-hairline pt-4" data-tour="run-mutations">
                 <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                   <span className="legend">Break it first</span>
                   <span className="text-[13px] text-faint">

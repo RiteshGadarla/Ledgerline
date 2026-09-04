@@ -3,10 +3,12 @@ import json
 import redis.asyncio as redis
 from pydantic import BaseModel
 
+from llm.backoff import DEFAULT_MAX_ATTEMPTS
 from llm.cache import ResponseCache
 from llm.client import FakeClient, LlmResponse
 from llm.gateway import LlmGateway
 from llm.governor import Governor
+from llm.keys import ApiKey
 from llm.models import BACKUP_MODEL, PRIMARY_MODEL
 from money.result import Err, Ok
 
@@ -58,7 +60,9 @@ class _RawClient:
     def __init__(self, raw_json: str) -> None:
         self._raw_json = raw_json
 
-    async def generate(self, *, model: str, prompt: str, response_schema: type[BaseModel]) -> LlmResponse:
+    async def generate(
+        self, *, model: str, prompt: str, response_schema: type[BaseModel], api_key: ApiKey | None = None
+    ) -> LlmResponse:
         return LlmResponse(raw_json=self._raw_json, input_tokens=1, output_tokens=1)
 
 
@@ -80,7 +84,9 @@ class _AlwaysTransientClient:
     def __init__(self) -> None:
         self.call_count = 0
 
-    async def generate(self, *, model: str, prompt: str, response_schema: type[BaseModel]) -> LlmResponse:
+    async def generate(
+        self, *, model: str, prompt: str, response_schema: type[BaseModel], api_key: ApiKey | None = None
+    ) -> LlmResponse:
         from llm.backoff import LlmTransientError
 
         self.call_count += 1
@@ -94,4 +100,7 @@ async def test_429_storm_degrades_to_err_after_retries_exhausted(redis_client: r
     result = await gateway.generate(model=PRIMARY_MODEL, prompt="anything", response_schema=Proposal, user_id="u1")
 
     assert isinstance(result, Err)
-    assert client.call_count == 3  # max_attempts in with_backoff
+    # Bound to the constant rather than a literal: the attempt count is a
+    # tuning decision that moves, and a test asserting a copy of it fails
+    # for no reason the next time it is tuned.
+    assert client.call_count == DEFAULT_MAX_ATTEMPTS

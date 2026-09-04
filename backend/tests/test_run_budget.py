@@ -97,14 +97,20 @@ async def _run_full_pipeline(seed: int, redis_client: redis.Redis) -> tuple[int,
 async def test_150_record_run_stays_within_llm_budget(redis_client: redis.Redis) -> None:
     """800 tokens, not the 15k this once allowed. Explaining used to ask for
     one item per exception and now asks for one per distinct code, which on
-    these three seeds is 21/42/51 exceptions collapsing to 4/5/4 codes. The
+    these three seeds is 81/110/83 exceptions collapsing to 6/5/4 codes. The
     ceiling is set below what the old shape cost on the *cheapest* seed
     (~940 tokens), so a regression to per-exception fails here rather than
     surfacing as a run that mysteriously takes minutes.
+
+    The request ceiling is 4 rather than 3 because the corpus is now seeded
+    15% difficult across all ten classes instead of one record each, and a
+    harder corpus surfaces more distinct exception codes to explain. Measured
+    cost on these seeds is 3/4/3 requests and 472/551/294 tokens; the ceilings
+    sit just above the worst of them, so any real regression still fails here.
     """
     for seed in SEEDS:
         requests, tokens = await _run_full_pipeline(seed, redis_client)
-        assert requests <= 3, f"seed={seed}: {requests} LLM requests exceeds the budget of 3"
+        assert requests <= 4, f"seed={seed}: {requests} LLM requests exceeds the budget of 4"
         assert tokens < 800, f"seed={seed}: {tokens} tokens exceeds the 800 budget"
 
 

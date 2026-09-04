@@ -1,9 +1,10 @@
 import json
 from collections.abc import AsyncIterator
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
@@ -13,14 +14,30 @@ from app.settings import get_settings
 from db.tenancy import UserRecord
 from llm.ask import AskClient, GeminiAskClient, ScriptedAskClient, ask, ask_stream
 from llm.governor import Governor
-from llm.limits import DEFAULT_USER_DAILY_QUOTA, load_model_limits
+from llm.keys import KeyPool
+from llm.limits import load_model_limits, user_daily_quota
 
 router = APIRouter(prefix="/ask", tags=["ask"])
 
 
+class AskTurnIn(BaseModel):
+    """One prior turn of the conversation, replayed for context."""
+
+    role: Literal["you", "lyra"]
+    text: str
+
+
 class AskRequest(BaseModel):
-    run_id: str
+    # Optional, so Lyra can also be asked from outside a run surface: with no
+    # run in hand her first move is list_runs, which is the honest way to
+    # answer "which run went best?" rather than guessing which one was meant.
+    run_id: str | None = None
     question: str
+    # The transcript already lives in the browser and the agent keeps no state
+    # between requests, so the client replays it. It is dialogue context only:
+    # every number in the answer must still come from a tool result on this
+    # turn, which the grounding check enforces whatever the history says.
+    history: list[AskTurnIn] = Field(default_factory=list, max_length=40)
 
 
 class AskResponseOut(BaseModel):
@@ -31,9 +48,9 @@ class AskResponseOut(BaseModel):
 def get_ask_client(request: Request) -> AskClient:
     """A dependency (not a plain call) so tests can override it with a
     ScriptedAskClient carrying canned turns instead of ever reaching Gemini."""
-    api_key = get_settings().gemini_api_key
-    if api_key:
-        return GeminiAskClient(api_key)
+    keys = KeyPool.parse(get_settings().gemini_api_key)
+    if keys:
+        return GeminiAskClient(keys)
     # No key configured: degrade immediately and consistently, same as
     # llm/factory.py's build_gateway() falling back to an empty FakeClient.
     return ScriptedAskClient(turns=[])
@@ -41,12 +58,18 @@ def get_ask_client(request: Request) -> AskClient:
 
 def get_ask_governor(request: Request) -> Governor:
     limits = load_model_limits()
+    keys = KeyPool.parse(get_settings().gemini_api_key)
     return Governor(
         redis_client=get_redis(request),
         rpm_limits={model: limit.rpm for model, limit in limits.items()},
         rpd_limits={model: limit.rpd for model, limit in limits.items()},
-        user_daily_quota=DEFAULT_USER_DAILY_QUOTA,
+        user_daily_quota=user_daily_quota(len(keys)),
+        keys=keys,
     )
+
+
+def _prior(payload: AskRequest) -> list[tuple[str, str]]:
+    return [(turn.role, turn.text) for turn in payload.history]
 
 
 @router.post("", response_model=AskResponseOut)
@@ -60,7 +83,9 @@ async def ask_endpoint(
     """Answers a question about a run, grounded in that run's data. `degraded`
     is true when no model could be reached (quota exhausted or all attempts
     failed) and a fallback answer was returned instead."""
-    answer = await ask(payload.question, payload.run_id, user.id, db, client, governor)
+    answer = await ask(
+        payload.question, payload.run_id, user.id, db, client, governor, prior=_prior(payload)
+    )
     return AskResponseOut(answer=answer.text, degraded=answer.degraded)
 
 
@@ -85,7 +110,9 @@ async def ask_stream_endpoint(
     """
 
     async def frames() -> AsyncIterator[bytes]:
-        async for event in ask_stream(payload.question, payload.run_id, user.id, db, client, governor):
+        async for event in ask_stream(
+            payload.question, payload.run_id, user.id, db, client, governor, prior=_prior(payload)
+        ):
             yield f"data: {json.dumps(event)}\n\n".encode()
 
     return StreamingResponse(

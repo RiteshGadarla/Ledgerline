@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { Lyra } from "@/components/Lyra";
 import { Rail } from "@/components/Rail";
+import { Tour } from "@/components/Tour";
 
 // Routes that own their full-bleed canvas: the landing page and the two auth
 // screens draw their own chrome, so the rail and the content well that every
@@ -24,6 +25,9 @@ export function Shell({ children }: { children: React.ReactNode }) {
       <div className="order-1 flex min-h-0 min-w-0 flex-1 flex-col md:order-none">{children}</div>
       {/* Self-gating: Lyra renders only on a run's own surfaces. */}
       <Lyra />
+      {/* Renders nothing until the tour is started, and only inside the
+          signed-in frame -- the surfaces it points at do not exist outside it. */}
+      <Tour />
     </div>
   );
 }

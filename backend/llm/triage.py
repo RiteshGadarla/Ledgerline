@@ -1,3 +1,4 @@
+import asyncio
 from dataclasses import dataclass
 
 from contracts.enums import ExceptionCode, PassId
@@ -145,6 +146,11 @@ def resolve_candidate(
     return groups, exceptions, used
 
 
+# How long the whole assisted-triage stage may take. Past this the run stops
+# waiting on the provider and reports what it could not do.
+TRIAGE_DEADLINE_SECONDS = 90.0
+
+
 async def run_triage(
     settlement_ids: list[str],
     index: CorpusIndex,
@@ -152,6 +158,8 @@ async def run_triage(
     gateway: LlmGateway,
     used: UsedRecordIds,
     user_id: str,
+    concurrency: int | None = None,
+    deadline_seconds: float = TRIAGE_DEADLINE_SECONDS,
 ) -> TriageOutcome:
     groups: list[MatchGroup] = []
     exceptions: list[Exception_] = []
@@ -159,16 +167,58 @@ async def run_triage(
     tokens_used = 0
     degraded = False
 
-    for candidate in build_candidates(settlement_ids, index, unresolved_bank_line_ids):
-        prompt = build_prompt(candidate, index)
-        result: Result[LlmResponse] = await gateway.generate(
-            model=TRIAGE_MODEL,
-            prompt=prompt,
-            response_schema=TriageResponse,
-            user_id=user_id,
-            fallbacks=(BACKUP_MODEL,),
-        )
-        if isinstance(result, Err):
+    candidates = build_candidates(settlement_ids, index, unresolved_bank_line_ids)
+    if not candidates:
+        return TriageOutcome(groups, exceptions, used, requests_issued, tokens_used, degraded)
+
+    # Two phases, and the split is the point.
+    #
+    # Asking is independent per candidate: a prompt is built from the corpus
+    # index alone, so nothing about one candidate's answer changes another's
+    # question. Those calls go out concurrently, which is what turns a stage
+    # that costs one round trip per settlement in series into one that costs
+    # roughly the slowest few.
+    #
+    # Resolving is not independent. `resolve_candidate` threads `used` through
+    # every call so two settlements cannot both claim the same bank line, and
+    # which one gets it depends on the order they are applied in. So the
+    # answers are applied afterwards, in the candidates' own order, exactly as
+    # they were when this ran serially -- the run stays reproducible from its
+    # seed, and the output hash does not depend on which reply arrived first.
+    limit = concurrency if concurrency is not None else gateway.suggested_concurrency()
+    semaphore = asyncio.Semaphore(max(1, limit))
+
+    async def ask(candidate: TriageCandidate) -> Result[LlmResponse]:
+        async with semaphore:
+            return await gateway.generate(
+                model=TRIAGE_MODEL,
+                prompt=build_prompt(candidate, index),
+                response_schema=TriageResponse,
+                user_id=user_id,
+                fallbacks=(BACKUP_MODEL,),
+            )
+
+    # A deadline for the whole stage. Retries against a provider having a bad
+    # afternoon are unbounded work, and a reconciliation that takes twenty
+    # minutes has failed at being useful whatever it eventually reports. What
+    # has not answered by the deadline is abandoned and its settlement keeps
+    # the exception it already had -- the same outcome as a refused call, and
+    # the behaviour this stage promises: degrade to a typed exception, never
+    # to a guess.
+    tasks = [asyncio.create_task(ask(candidate)) for candidate in candidates]
+    done, pending = await asyncio.wait(tasks, timeout=deadline_seconds)
+    for task in pending:
+        task.cancel()
+    if pending:
+        degraded = True
+        await asyncio.gather(*pending, return_exceptions=True)
+
+    results: list[Result[LlmResponse] | None] = [
+        task.result() if task in done and not task.cancelled() else None for task in tasks
+    ]
+
+    for candidate, result in zip(candidates, results, strict=True):
+        if result is None or isinstance(result, Err):
             degraded = True
             continue  # degraded: caller already has this settlement's base exception
 

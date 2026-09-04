@@ -7,6 +7,7 @@ from app.logging_config import configure_logging
 from app.settings import get_settings
 from db.base import make_engine, make_session_factory
 from llm.factory import build_gateway
+from llm.keys import KeyPool
 from workers.tasks import run_reconciliation
 
 # At import, so anything logged while the worker is coming up lands in
@@ -32,7 +33,7 @@ async def startup(ctx: dict[str, Any]) -> None:
     redis_url = settings.redis_url or "redis://localhost:6379"
     ctx["redis_client"] = redis.from_url(redis_url)  # type: ignore[no-untyped-call]
     ctx["gateway_factory"] = lambda user_id: build_gateway(
-        ctx["redis_client"], schema_version="run-v1", api_key=settings.gemini_api_key
+        ctx["redis_client"], schema_version="run-v1", keys=KeyPool.parse(settings.gemini_api_key)
     )
 
 

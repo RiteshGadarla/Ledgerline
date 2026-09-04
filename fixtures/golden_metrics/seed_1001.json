@@ -1,75 +1,79 @@
 {
-  "auto_rate": 0.94,
+  "auto_rate": 0.7483443708609272,
   "assist_rate": 0.0,
-  "open_rate": 0.06,
+  "open_rate": 0.25165562913907286,
   "precision": 1.0,
-  "recall": 0.9,
+  "recall": 0.75,
   "false_matches": 0,
   "by_class": {
     "unmatchable": {
       "precision": null,
       "recall": 1.0,
-      "count": 1
+      "count": 2
     },
     "clean": {
       "precision": null,
-      "recall": 0.95,
-      "count": 140
-    },
-    "refund_in_batch": {
-      "precision": null,
-      "recall": 1.0,
-      "count": 1
-    },
-    "narration_missing_utr": {
-      "precision": null,
-      "recall": 0.0,
-      "count": 1
+      "recall": 0.7890625,
+      "count": 128
     },
     "partial_split": {
       "precision": null,
-      "recall": 1.0,
-      "count": 1
-    },
-    "chargeback": {
-      "precision": null,
-      "recall": 1.0,
-      "count": 1
-    },
-    "duplicate_payment": {
-      "precision": null,
-      "recall": 1.0,
-      "count": 1
-    },
-    "fee_gst_delta": {
-      "precision": null,
-      "recall": 1.0,
-      "count": 1
+      "recall": 0.6666666666666666,
+      "count": 3
     },
     "date_outside_window": {
       "precision": null,
       "recall": 1.0,
-      "count": 1
+      "count": 2
+    },
+    "chargeback": {
+      "precision": null,
+      "recall": 0.5,
+      "count": 2
+    },
+    "fee_gst_delta": {
+      "precision": null,
+      "recall": 0.6666666666666666,
+      "count": 3
+    },
+    "duplicate_payment": {
+      "precision": null,
+      "recall": 0.5,
+      "count": 2
+    },
+    "refund_in_batch": {
+      "precision": null,
+      "recall": 0.5,
+      "count": 2
+    },
+    "narration_missing_utr": {
+      "precision": null,
+      "recall": 0.0,
+      "count": 2
     },
     "payer_name_mismatch": {
       "precision": null,
-      "recall": 1.0,
-      "count": 1
+      "recall": 0.5,
+      "count": 2
     },
     "unrelated_credit": {
       "precision": null,
       "recall": 1.0,
-      "count": 1
+      "count": 2
     }
   },
-  "records": 320,
-  "open_exceptions": 21,
-  "amount_at_risk": 160404852,
-  "throughput_rps": 553545.1138844097,
+  "records": 317,
+  "open_exceptions": 81,
+  "amount_at_risk": 741112764,
+  "payments_total": 151,
+  "payments_auto": 113,
+  "payments_assisted": 0,
+  "amount_cleared": 831453843,
+  "throughput_rps": 329268.2040247467,
   "p50_ms": 0,
   "p95_ms": 0,
   "llm_requests": 0,
   "llm_tokens": 0,
   "llm_degraded": false,
-  "output_hash": "d64c336d1e60f66936dce0e8c84f1ef292f29b9b827fa4186be7caa1290156f1"
+  "output_hash": "3a5cac877b58a3817bfb7977e888c9ca5c80a07b11422ea5e014031cf5099adb"
 }

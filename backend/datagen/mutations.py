@@ -143,14 +143,48 @@ def _grouped_bank_line_ids(work: _Working) -> list[str]:
     """Bank lines truth says belong to a settlement, so a mutation on one has
     a real answer to be wrong about."""
     return sorted(
-        line.id
-        for line in work.bank_lines
-        if work.record_group.get(f"bank_line:{line.id}", UNMATCHABLE) != UNMATCHABLE
+        line.id for line in work.bank_lines if work.record_group.get(f"bank_line:{line.id}", UNMATCHABLE) != UNMATCHABLE
     )
 
 
-def _pick(work: _Working, candidates: list[str]) -> str | None:
-    return work.rng.choice(candidates) if candidates else None
+def _pick(work: _Working, candidates: list[str], kind: str) -> str | None:
+    """Choose a victim, preferring one whose chain would otherwise have tied
+    out cleanly.
+
+    A corruption applied to a record the corpus had already made difficult
+    proves nothing: the exception that comes out was owed to the seeded
+    difficulty, not to the sabotage, and the mutation cannot be said to have
+    caused anything. Sabotaging a clean chain makes the resulting exception
+    attributable, which is the whole point of applying one on purpose.
+
+    Falls back to the full candidate list when nothing clean is left, and when
+    there is no truth to read a difficulty from -- an uploaded corpus can still
+    be corrupted, it just cannot be scored afterwards.
+    """
+    if not candidates:
+        return None
+    clean = [candidate for candidate in candidates if _group_is_clean(work, f"{kind}:{candidate}")]
+    return work.rng.choice(clean or candidates)
+
+
+def _group_is_clean(work: _Working, key: str) -> bool:
+    """Whether the whole chain this record sits in was seeded clean.
+
+    The record's own difficulty is not enough to go on: a bank line rarely
+    carries one at all, since what makes its chain hard is usually a property
+    of the payment or the invoice at the other end of it. So the question is
+    asked of every member of the group, and a chain counts as clean only if
+    none of them was planted as a difficulty.
+    """
+    group = work.group_of(key)
+    if group is None:
+        return False
+    members = [
+        *(f"invoice:{invoice_id}" for invoice_id in group.invoice_ids),
+        *(f"payment:{payment_id}" for payment_id in group.payment_ids),
+        *([f"bank_line:{group.bank_line_id}"] if group.bank_line_id else []),
+    ]
+    return all(work.record_difficulty.get(member, DifficultyClass.CLEAN) == DifficultyClass.CLEAN for member in members)
 
 
 def _replace_payment(work: _Working, payment_id: str, updated: Payment) -> None:
@@ -171,13 +205,11 @@ def _duplicate_payment(work: _Working) -> None:
     Truth gains a record, so truth is edited: the copy is unmatchable, because
     there is no second sale for it to belong to.
     """
-    payment_id = _pick(work, _settled_payment_ids(work))
+    payment_id = _pick(work, _settled_payment_ids(work), "payment")
     if payment_id is None:
         return
     original = next(p for p in work.payments if p.id == payment_id)
-    copy = original.model_copy(
-        update={"id": f"pay_{work.next_token(14)}", "settlement_id": None}
-    )
+    copy = original.model_copy(update={"id": f"pay_{work.next_token(14)}", "settlement_id": None})
     work.payments.append(copy)
     work.record_group[f"payment:{copy.id}"] = UNMATCHABLE
     work.record_difficulty[f"payment:{copy.id}"] = DifficultyClass.DUPLICATE_PAYMENT
@@ -190,7 +222,7 @@ def _shift_date(work: _Working, days: int) -> None:
     Corruption in place: the money is still that settlement's money, so truth
     does not move.
     """
-    bank_line_id = _pick(work, _grouped_bank_line_ids(work))
+    bank_line_id = _pick(work, _grouped_bank_line_ids(work), "bank_line")
     if bank_line_id is None:
         return
     line = next(b for b in work.bank_lines if b.id == bank_line_id)
@@ -206,7 +238,7 @@ def _alter_amount(work: _Working, delta: Paise) -> None:
 
     Corruption in place: truth does not move.
     """
-    payment_id = _pick(work, _settled_payment_ids(work))
+    payment_id = _pick(work, _settled_payment_ids(work), "payment")
     if payment_id is None:
         return
     payment = next(p for p in work.payments if p.id == payment_id)
@@ -223,7 +255,7 @@ def _delete_bank_line(work: _Working) -> None:
     payments and settlement -- they are still one commercial event -- but it no
     longer has a bank line, and nothing should ever tie one to it again.
     """
-    bank_line_id = _pick(work, _grouped_bank_line_ids(work))
+    bank_line_id = _pick(work, _grouped_bank_line_ids(work), "bank_line")
     if bank_line_id is None:
         return
     work.bank_lines = [b for b in work.bank_lines if b.id != bank_line_id]
@@ -268,10 +300,8 @@ def _scramble_narration(work: _Working) -> None:
     open rather than guess, and truth insisting the link exists is what makes
     that a measurable miss instead of a free pass.
     """
-    candidates = sorted(
-        line.id for line in work.bank_lines if extract_narration(line.narration).utrs
-    )
-    bank_line_id = _pick(work, candidates)
+    candidates = sorted(line.id for line in work.bank_lines if extract_narration(line.narration).utrs)
+    bank_line_id = _pick(work, candidates, "bank_line")
     if bank_line_id is None:
         return
     line = next(b for b in work.bank_lines if b.id == bank_line_id)
@@ -292,7 +322,7 @@ def _split_payment(work: _Working) -> None:
     still owed against the same invoice, and an engine that can only close the
     settled half has genuinely not closed the group.
     """
-    payment_id = _pick(work, _settled_payment_ids(work))
+    payment_id = _pick(work, _settled_payment_ids(work), "payment")
     if payment_id is None:
         return
     payment = next(p for p in work.payments if p.id == payment_id)

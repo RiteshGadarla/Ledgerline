@@ -144,7 +144,7 @@ export function RunShell({ runId, children }: { runId: string; children: React.R
               verdict, exceptions, cash position, and what reproduces it --
               for the reader who will never be handed a URL. */}
           {state === "complete" && (
-            <a href={`/api/runs/${runId}/report.pdf`} className="btn btn-sm">
+            <a href={`/api/runs/${runId}/report.pdf`} data-tour="run-report" className="btn btn-sm">
               <svg
                 width="16"
                 height="16"
@@ -186,6 +186,7 @@ export function RunShell({ runId, children }: { runId: string; children: React.R
       {/* channel tabs: a machined segmented control, not an underline nav */}
       <nav
         aria-label="Run views"
+        data-tour="run-tabs"
         className="flex shrink-0 items-stretch overflow-x-auto border-b border-hairline bg-sunk px-[clamp(0.875rem,1.6vw,1.625rem)]"
       >
         {TABS.map((tab, i) => {
@@ -196,6 +197,7 @@ export function RunShell({ runId, children }: { runId: string; children: React.R
             <Link
               key={tab.slug}
               href={href}
+              data-tour={`tab-${tab.slug}`}
               aria-current={active ? "page" : undefined}
               className={
                 "relative flex min-h-[42px] items-center gap-2 whitespace-nowrap border-r border-hairline px-4 text-[12.5px] font-semibold uppercase tracking-[0.1em] transition-colors " +

@@ -113,6 +113,20 @@ class RunMetrics(Frozen):
     records: int
     open_exceptions: int
     amount_at_risk: Paise
+    # The counts behind the three rates above, and the money that actually
+    # cleared. The rates alone cannot answer "how much work did this save?":
+    # they are fractions of a payment total that was never stored, so 76.4%
+    # could be 306 chains or 3. These make the run's result expressible in
+    # payments and rupees rather than only in percentages.
+    #
+    # Optional because runs completed before this existed have metrics_json
+    # without them, and a stored run is a record of what happened rather than
+    # something to be rewritten. Surfaces omit the impact panel when they are
+    # absent, the same way accuracy is omitted with no answer key.
+    payments_total: int | None = None
+    payments_auto: int | None = None
+    payments_assisted: int | None = None
+    amount_cleared: Paise | None = None
     throughput_rps: float
     p50_ms: int
     p95_ms: int

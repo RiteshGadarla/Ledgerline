@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { EmptyState, Loading, Modal, PanelHead, Surface } from "@/components/Surface";
+import { DIFFICULTY_CLASSES, HARD_SHARE, formatClassName } from "@/lib/difficulty";
 import { RequireAuth } from "@/components/RequireAuth";
 import { UserBadge } from "@/components/UserBadge";
 import { api } from "@/lib/api/client";
@@ -25,6 +26,8 @@ const ROLES: { value: string; label: string; hint: string }[] = [
 const RECORDS_PAGE_SIZE = 20;
 
 const DEFAULT_SEED = "42";
+// Mirrors DEFAULT_GENERATED_SIZE in backend/app/routers/datasets.py.
+const DEFAULT_GENERATED_SIZE = 400;
 
 function isNameTaken(existingNames: string[], name: string): boolean {
   const candidate = name.trim().toLowerCase();
@@ -374,6 +377,78 @@ function Field({
   );
 }
 
+/** The corpus is built in milliseconds. This is the floor the dialog stays up
+ *  for anyway: a panel naming eleven difficulty classes that flashes past in
+ *  80ms has told the viewer nothing, and "it was instant" is not the claim
+ *  worth making -- what was planted is. If the API takes longer than the
+ *  floor, the panel simply stays until it answers. */
+const GENERATE_FLOOR_MS = 2000;
+
+function GeneratingPanel({ size }: { size: number }) {
+  const [revealed, setRevealed] = useState(0);
+
+  useEffect(() => {
+    // Paced so the last class lands just as the floor expires.
+    const step = GENERATE_FLOOR_MS / (DIFFICULTY_CLASSES.length + 1);
+    const timer = setInterval(
+      () => setRevealed((n) => Math.min(n + 1, DIFFICULTY_CLASSES.length)),
+      step,
+    );
+    return () => clearInterval(timer);
+  }, []);
+
+  const hard = Math.round(size * HARD_SHARE);
+  const done = revealed >= DIFFICULTY_CLASSES.length;
+
+  return (
+    <div className="flex flex-col gap-4" role="status" aria-live="polite">
+      <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <span className="legend legend-hi">Planting the corpus</span>
+        <span className="mono text-[12.5px] text-faint">
+          {size.toLocaleString()} records · {hard.toLocaleString()} seeded as a difficulty
+        </span>
+      </div>
+
+      <ul className="flex flex-col">
+        {DIFFICULTY_CLASSES.map((difficulty, index) => {
+          const planted = index < revealed;
+          return (
+            <li
+              key={difficulty.name}
+              className={
+                "flex items-baseline gap-3 border-b border-hairline py-2 transition-opacity duration-200 last:border-b-0 " +
+                (planted ? "opacity-100" : "opacity-25")
+              }
+            >
+              <span
+                aria-hidden
+                className={
+                  "mt-1 h-1.5 w-1.5 shrink-0 rounded-full " +
+                  (planted ? "bg-readout-hi" : "bg-hairline-strong")
+                }
+              />
+              <span className="min-w-[11rem] text-[13.5px] font-medium">
+                {formatClassName(difficulty.name)}
+              </span>
+              <span className="min-w-0 flex-1 text-[13px] leading-snug text-muted">
+                {difficulty.blurb}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+
+      <p className="flex items-center gap-2.5 text-[13px] text-muted">
+        <span
+          aria-hidden
+          className="pulse-dot h-1.5 w-1.5 rounded-full bg-readout-hi"
+        />
+        {done ? "Writing the answer key…" : "Generating…"}
+      </p>
+    </div>
+  );
+}
+
 function GenerateForm({
   existingNames,
   onDone,
@@ -387,7 +462,9 @@ function GenerateForm({
   // stays editable, so a later keystroke isn't fighting a recomputed default.
   const [name, setName] = useState(() => nextSyntheticName(existingNames));
   const [seed, setSeed] = useState(DEFAULT_SEED);
-  const [size, setSize] = useState("150");
+  // Matches DEFAULT_GENERATED_SIZE: enough records that each of the ten
+  // difficulty classes carries a sample rather than a single example.
+  const [size, setSize] = useState("400");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const taken = isNameTaken(existingNames, name);
@@ -397,6 +474,7 @@ function GenerateForm({
     event.preventDefault();
     setBusy(true);
     setError(null);
+    const startedAt = Date.now();
     const { data, error: apiError } = await api.POST("/datasets", {
       body: {
         name,
@@ -405,6 +483,11 @@ function GenerateForm({
         size: size ? Number(size) : undefined,
       },
     });
+    // The floor is held whether the call succeeded or failed: an error that
+    // appears in the same frame as the click reads as a rejected form rather
+    // than as something that was attempted.
+    const remaining = GENERATE_FLOOR_MS - (Date.now() - startedAt);
+    if (remaining > 0) await new Promise((resolve) => setTimeout(resolve, remaining));
     setBusy(false);
     if (!data) {
       setError(
@@ -416,6 +499,8 @@ function GenerateForm({
     }
     onDone(data);
   }
+
+  if (busy) return <GeneratingPanel size={Number(size) || DEFAULT_GENERATED_SIZE} />;
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-5">

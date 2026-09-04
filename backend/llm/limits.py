@@ -40,4 +40,22 @@ def load_model_limits() -> dict[str, ModelLimits]:
     }
 
 
+# Per-user calls per day, for one credential. Everything else in this module
+# is charged per key and so widens on its own when a key is added; this one is
+# keyed by user and would not, which made it the binding limit the moment a
+# second key was configured. `user_daily_quota()` is what callers should use.
 DEFAULT_USER_DAILY_QUOTA = _int_env("LLM_USER_DAILY_QUOTA", 25)
+
+
+def user_daily_quota(key_count: int) -> int:
+    """The per-user daily ceiling, scaled to the size of the key pool.
+
+    The pool exists to buy headroom: three keys are three independent free
+    tiers, and a flat per-user cap would hand that headroom straight back --
+    a user still stopped at 25 calls with 750 model-days available. An
+    explicit LLM_USER_DAILY_QUOTA is honoured as an absolute figure, because
+    someone who sets it is naming the ceiling they want, not a per-key rate.
+    """
+    if os.environ.get("LLM_USER_DAILY_QUOTA"):
+        return DEFAULT_USER_DAILY_QUOTA
+    return DEFAULT_USER_DAILY_QUOTA * max(1, key_count)

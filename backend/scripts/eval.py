@@ -48,6 +48,20 @@ def score_run(corpus: Corpus, result: MatchResult, truth: Truth | None, elapsed_
     elapsed_ms = int(elapsed_seconds * 1000)
     amount_at_risk = Paise(sum(int(exc.amount_at_risk) for exc in result.exceptions))
 
+    # What tied out, in money. The settlement's payout is the figure that
+    # actually moved through the bank for a matched chain, so a group without
+    # one contributes nothing here rather than being estimated from its parts
+    # -- an impact number built on a guess would be worth less than no impact
+    # number at all.
+    settlements_by_id = {s.id: s for s in corpus.settlements}
+    amount_cleared = Paise(
+        sum(
+            int(settlements_by_id[group.settlement_id].payout)
+            for group in result.groups
+            if group.settlement_id in settlements_by_id
+        )
+    )
+
     return RunMetrics(
         auto_rate=auto_rate,
         assist_rate=assist_rate,
@@ -59,6 +73,10 @@ def score_run(corpus: Corpus, result: MatchResult, truth: Truth | None, elapsed_
         records=records,
         open_exceptions=len(result.exceptions),
         amount_at_risk=amount_at_risk,
+        payments_total=total_payments,
+        payments_auto=len(auto_payment_ids),
+        payments_assisted=len(assisted_payment_ids),
+        amount_cleared=amount_cleared,
         throughput_rps=throughput_rps,
         p50_ms=elapsed_ms,
         p95_ms=elapsed_ms,

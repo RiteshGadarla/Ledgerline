@@ -1,7 +1,7 @@
 import json
 import random
 from datetime import datetime
-from typing import Any, Literal
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, Form, UploadFile
 from fastapi.responses import StreamingResponse
@@ -9,15 +9,13 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
+from app.demo import build_generated_dataset
 from app.deps import get_current_user
 from app.errors import NotFoundError, ValidationFailedError
 from app.ingest_upload import parse_upload, require_role
-from datagen.generator import generate_corpus
-from datagen.serialize import truth_to_dict
 from db.tenancy import (
     REQUIRED_DATASET_ROLES,
     DatasetRecord,
-    DatasetRole,
     UserRecord,
     count_runs_for_dataset,
     create_dataset,
@@ -37,7 +35,10 @@ from ingest.validate import build_records
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
 
-DEFAULT_GENERATED_SIZE = 150
+# Sized so each of the ten difficulty classes carries enough records to be
+# scored on: at 150 several classes held a single record, and a recall computed
+# from one record is 0% or 100% and nothing in between.
+DEFAULT_GENERATED_SIZE = 400
 # The ceiling is the README's documented 5,000; the floor only has to stop a
 # size that isn't a size at all. A small corpus is a legitimate thing to ask
 # for (the test suite runs on 30) -- a negative one is not.
@@ -151,29 +152,7 @@ async def create_dataset_endpoint(
     if payload.source == "generated":
         seed = payload.seed if payload.seed is not None else random.randint(1, 1_000_000)
         size = payload.size or DEFAULT_GENERATED_SIZE
-        corpus, truth = generate_corpus(seed, size)
-        dataset = await create_dataset(
-            db, user.id, name, "generated", seed=seed, size=size, truth_json=json.dumps(truth_to_dict(truth))
-        )
-        role_records: dict[DatasetRole, list[Any]] = {
-            "ledger": corpus.invoices,
-            "gateway": corpus.payments,
-            "settlement": corpus.settlements,
-            "bank": corpus.bank_lines,
-        }
-        for role, records in role_records.items():
-            await upsert_dataset_file(
-                db,
-                dataset.id,
-                role,
-                raw_filename=None,
-                raw_content_type=None,
-                raw_content=None,
-                records_json=records_to_json(role, records),
-                row_count=len(records),
-                valid_count=len(records),
-            )
-        await recompute_dataset_status(db, dataset.id)
+        dataset = await build_generated_dataset(db, user.id, name, seed, size)
     else:
         dataset = await create_dataset(db, user.id, name, "uploaded")
 

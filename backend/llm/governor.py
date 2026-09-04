@@ -1,10 +1,11 @@
 import asyncio
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 import redis.asyncio as redis
 
+from llm.keys import ApiKey, KeyPool
 from money.result import Err, Ok, Result
 
 # Atomic window counter: increments KEYS[1], sets its TTL (in ms, ARGV[1]) only
@@ -84,30 +85,82 @@ class DailyCounter:
         allowed = await script(keys=[key], args=[ttl_ms, self.limit])
         return bool(allowed)
 
+    async def is_exhausted(self, key: str) -> bool:
+        """A read-only look at the counter.
+
+        Lets a caller skip a credential that is already out of quota without
+        spending a slot to discover it -- a day slot is not refunded until
+        UTC midnight, so probing with an increment would make an exhausted key
+        quietly eat quota from the keys still working. increment_and_check
+        remains the authoritative, atomic gate; this only avoids the obvious
+        waste.
+        """
+        current = await self.redis_client.get(key)
+        return current is not None and int(current) >= self.limit
+
 
 @dataclass
 class Governor:
-    """Gates every outbound LLM call: per-user quota first, then RPD, then RPM."""
+    """Gates every outbound LLM call: per-user quota first, then the per-key
+    RPD and RPM buckets of whichever credential is due a turn.
+
+    Quota on the free tier is charged per API key, so the counters are keyed
+    per (model, key) and the pool is walked in rotation order until one key
+    can serve the call. Two keys therefore mean twice the daily ceiling, not
+    the same ceiling reached twice as fast -- and a key that runs out is
+    stepped over instead of failing the request.
+    """
 
     redis_client: "redis.Redis"
     rpm_limits: dict[str, int]
     rpd_limits: dict[str, int]
     user_daily_quota: int
+    keys: KeyPool = field(default_factory=KeyPool)
     rpm_window_seconds: float = 60.0
+    rpm_max_wait_seconds: float = 5.0
 
-    async def check_and_reserve(self, model: str, user_id: str) -> Result[None]:
+    async def check_and_reserve(self, model: str, user_id: str) -> Result[ApiKey]:
+        """Reserve one call, returning the key it must be made with."""
         user_counter = DailyCounter(self.redis_client, self.user_daily_quota)
         if not await user_counter.increment_and_check(f"llm:user_quota:{user_id}"):
             return Err("user daily LLM quota exceeded")
 
         rpd_counter = DailyCounter(self.redis_client, self.rpd_limits[model])
-        if not await rpd_counter.increment_and_check(f"llm:rpd:{model}"):
-            return Err("model daily request quota exceeded")
+        rotation = self.keys.rotation()
+        denial = "model daily request quota exceeded"
 
-        bucket = RpmBucket(self.redis_client, self.rpm_limits[model], self.rpm_window_seconds)
-        try:
-            await bucket.acquire(f"llm:rpm:{model}")
-        except RateLimited:
-            return Err("model per-minute rate limit exceeded")
+        for position, key in enumerate(rotation):
+            rpd_key = f"llm:rpd:{model}:{key.id}"
+            if await rpd_counter.is_exhausted(rpd_key):
+                denial = "model daily request quota exceeded"
+                continue
 
-        return Ok(None)
+            # Only the last candidate waits out the minute window: with another
+            # key still to try, waiting on this one would be slower than simply
+            # using the next credential, which has its own untouched window.
+            is_last = position == len(rotation) - 1
+            bucket = RpmBucket(
+                self.redis_client,
+                self.rpm_limits[model],
+                self.rpm_window_seconds,
+                max_wait_seconds=self.rpm_max_wait_seconds if is_last else 0.0,
+            )
+            try:
+                await bucket.acquire(f"llm:rpm:{model}:{key.id}")
+            except RateLimited:
+                denial = "model per-minute rate limit exceeded"
+                continue
+
+            if not await rpd_counter.increment_and_check(rpd_key):
+                denial = "model daily request quota exceeded"
+                continue
+
+            return Ok(key)
+
+        # No key could serve this, so no call will be made -- give the user
+        # back the slot that was charged up front. Charging first is what
+        # makes the quota atomic under concurrent callers, but leaving it
+        # charged meant a saturated pool ate a user's whole day without ever
+        # reaching the provider: the refusals themselves became the spend.
+        await self.redis_client.decr(f"llm:user_quota:{user_id}")
+        return Err(denial)

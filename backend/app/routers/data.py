@@ -13,6 +13,7 @@ from ingest.mapper import CANONICAL_FIELDS, MAPPER_SCHEMA_VERSION, MappingCache,
 from ingest.validate import build_records
 from llm.factory import build_gateway
 from llm.gateway import LlmGateway
+from llm.keys import KeyPool
 from money.result import Err
 
 router = APIRouter(prefix="/data", tags=["data"])
@@ -52,7 +53,7 @@ def get_mapper_gateway(request: Request) -> LlmGateway:
     a FakeClient-backed gateway via app.dependency_overrides instead of ever
     reaching the real Gemini API."""
     return build_gateway(
-        get_redis(request), schema_version=MAPPER_SCHEMA_VERSION, api_key=get_settings().gemini_api_key
+        get_redis(request), schema_version=MAPPER_SCHEMA_VERSION, keys=KeyPool.parse(get_settings().gemini_api_key)
     )
 
 

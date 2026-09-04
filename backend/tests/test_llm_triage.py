@@ -1,6 +1,8 @@
+import asyncio
 import json
 
 import redis.asyncio as redis
+from pydantic import BaseModel
 
 from contracts.corpus import Corpus
 from datagen.generator import generate_corpus
@@ -8,16 +10,17 @@ from engine.index import build_index
 from engine.pipeline import match
 from engine.verifier import UsedRecordIds
 from llm.cache import ResponseCache
-from llm.client import FakeClient
+from llm.client import FakeClient, LlmClient, LlmResponse
 from llm.gateway import LlmGateway
 from llm.governor import Governor
+from llm.keys import ApiKey
 from llm.models import BACKUP_MODEL, PRIMARY_MODEL
 from llm.schemas import TriageResponse
 from llm.triage import TriageCandidate, build_candidates, build_prompt, resolve_candidate, run_triage
 from tests.conftest import make_bank_line, make_payment, make_settlement
 
 
-def _gateway(redis_client: redis.Redis, client: FakeClient) -> LlmGateway:
+def _gateway(redis_client: redis.Redis, client: LlmClient) -> LlmGateway:
     governor = Governor(
         redis_client=redis_client,
         rpm_limits={PRIMARY_MODEL: 1000, BACKUP_MODEL: 1000},
@@ -173,3 +176,89 @@ async def test_assisted_precision_is_1_0_on_committed_seeds_narration_missing_ut
                 assert set(group.invoice_ids) == set(truth_group.invoice_ids)
                 assert set(group.payment_ids) == set(truth_group.payment_ids)
                 assert group.status == "assisted"
+
+
+class _ReversedLatencyClient:
+    """Answers correctly, but slowest first: the reply for the earliest
+    candidate arrives last. Concurrency is what makes the arrival order differ
+    from the asking order, and this is the shape that would expose a stage
+    applying answers as they land."""
+
+    def __init__(self, fixtures: dict[str, str]) -> None:
+        self._fixtures = fixtures
+        self.concurrent = 0
+        self.peak_concurrent = 0
+        self._issued = 0
+
+    async def generate(
+        self,
+        *,
+        model: str,
+        prompt: str,
+        response_schema: type[BaseModel],
+        api_key: ApiKey | None = None,
+    ) -> LlmResponse:
+        self.concurrent += 1
+        self.peak_concurrent = max(self.peak_concurrent, self.concurrent)
+        # Earlier prompts sleep longer, so replies come back in reverse.
+        order = self._issued
+        self._issued += 1
+        try:
+            await asyncio.sleep(0.02 * max(0, 4 - order))
+            return LlmResponse(raw_json=self._fixtures[prompt], input_tokens=1, output_tokens=1)
+        finally:
+            self.concurrent -= 1
+
+
+def _triage_fixtures(candidates: list[TriageCandidate], index) -> dict[str, str]:  # type: ignore[no-untyped-def]
+    """A well-behaved answer for each candidate: pick the first bank line
+    offered and quote its narration verbatim."""
+    fixtures = {}
+    for candidate in candidates:
+        bank_line_id = candidate.bank_line_ids[0]
+        narration = index.bank_lines_by_id[bank_line_id].narration
+        fixtures[build_prompt(candidate, index)] = json.dumps(
+            {"proposals": [{"bank_line_id": bank_line_id, "confidence": 0.9, "evidence_spans": [narration.strip()]}]}
+        )
+    return fixtures
+
+
+async def _triage_once(redis_client: redis.Redis, concurrency: int):  # type: ignore[no-untyped-def]
+    corpus, _truth = generate_corpus(1001, 150)
+    index = build_index(corpus)
+    result = match(corpus)
+    settlement_ids = sorted({r.id for e in result.exceptions for r in e.records if r.kind == "settlement"})
+    bank_line_ids = {r.id for e in result.exceptions for r in e.records if r.kind == "bank_line"}
+    candidates = build_candidates(settlement_ids, index, bank_line_ids)
+
+    client = _ReversedLatencyClient(_triage_fixtures(candidates, index))
+    gateway = _gateway(redis_client, client)
+    outcome = await run_triage(
+        settlement_ids, index, bank_line_ids, gateway, UsedRecordIds(), user_id="u1", concurrency=concurrency
+    )
+    return outcome, client, len(candidates)
+
+
+async def test_triage_runs_its_calls_concurrently(redis_client: redis.Redis) -> None:
+    _outcome, client, candidate_count = await _triage_once(redis_client, concurrency=4)
+
+    if candidate_count > 1:
+        assert client.peak_concurrent > 1, "triage issued its calls one at a time"
+
+
+async def test_parallel_triage_resolves_in_candidate_order_not_arrival_order(
+    redis_client: redis.Redis,
+) -> None:
+    """The reproducibility guarantee. `resolve_candidate` threads `used`
+    through every answer so two settlements cannot both claim one bank line,
+    which makes the result depend on the order answers are applied in. Applied
+    as they arrive, a run's output would depend on which reply was quickest.
+    """
+    serial, _client, _count = await _triage_once(redis_client, concurrency=1)
+    parallel, _client2, _count2 = await _triage_once(redis_client, concurrency=8)
+
+    assert [g.id for g in parallel.groups] == [g.id for g in serial.groups]
+    assert [g.settlement_id for g in parallel.groups] == [g.settlement_id for g in serial.groups]
+    assert [g.bank_line_id for g in parallel.groups] == [g.bank_line_id for g in serial.groups]
+    assert [e.id for e in parallel.exceptions] == [e.id for e in serial.exceptions]
+    assert parallel.requests_issued == serial.requests_issued

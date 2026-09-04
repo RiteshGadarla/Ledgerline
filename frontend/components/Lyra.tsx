@@ -18,7 +18,39 @@ import { useSession } from "@/lib/session";
  * reads them through tool calls and does no arithmetic of its own.
  */
 
-type Message = { from: "lyra"; text: string; degraded?: boolean } | { from: "you"; text: string };
+type Citation = { id: string; kind: string };
+type Usage = { requests: number; input_tokens: number; output_tokens: number; tools: string[] };
+
+type Message =
+  | {
+      from: "lyra";
+      text: string;
+      degraded?: boolean;
+      citations?: Citation[];
+      followUps?: string[];
+      usage?: Usage;
+      trace?: string[];
+    }
+  | { from: "you"; text: string };
+
+/**
+ * Where a cited record lives. Lyra names ids in her answers; these turn each
+ * one into the surface that shows it, so a claim can be checked in a click
+ * rather than copied into a search box.
+ */
+function citationHref(runId: string | null, c: Citation): string | null {
+  if (c.kind === "run") return `/runs/${c.id}/scoreboard`;
+  if (!runId) return null;
+  return `/runs/${runId}/chain?focus=${encodeURIComponent(c.id)}`;
+}
+
+const KIND_LABEL: Record<string, string> = {
+  invoice: "Invoice",
+  payment: "Payment",
+  settlement: "Settlement",
+  bank_line: "Bank line",
+  run: "Run",
+};
 
 /**
  * Reads the `/ask/stream` SSE frames, calling `onEvent` for each.
@@ -29,7 +61,7 @@ type Message = { from: "lyra"; text: string; degraded?: boolean } | { from: "you
  * the buffer is held back until its terminator arrives.
  */
 async function readAskStream(
-  body: { run_id: string; question: string },
+  body: { run_id: string | null; question: string; history: { role: string; text: string }[] },
   onEvent: (event: Record<string, unknown>) => void,
   signal: AbortSignal,
 ): Promise<void> {
@@ -71,8 +103,16 @@ async function readAskStream(
 
 const SUGGESTIONS = [
   "What's the auto rate for this run?",
-  "How many open exceptions, and what's at risk?",
-  "What's the cash position?",
+  "What's broken, and where's the money stuck?",
+  "How does this compare to my last run?",
+];
+
+// Asked from outside a run, Lyra has to find the run first, so the openers
+// are the ones that start with that.
+const GLOBAL_SUGGESTIONS = [
+  "Which of my runs went best?",
+  "Compare my two most recent runs.",
+  "What's still open across my runs?",
 ];
 
 // The model can sit on a question for the better part of a minute; the panel
@@ -110,13 +150,19 @@ export function Lyra() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState("");
+  // What Lyra is reading right now, in order. Shown live instead of a bare
+  // spinner: a wait you can watch is a different experience from one you
+  // cannot, and this is also the clearest demonstration that the answer is
+  // assembled from the run's own data rather than recalled.
+  const [trace, setTrace] = useState<string[]>([]);
   const abortRef = useRef<AbortController | null>(null);
   // Seconds spent waiting on the current question, counted by the tick below
   // rather than read off the clock during render.
   const [waited, setWaited] = useState(0);
 
-  // Lyra is grounded on the run whose surface she is open on, and renders
-  // nowhere else, so this is the only run id there is.
+  // The run whose surface she is open on, when there is one. Off a run
+  // surface this is null and the agent works account-wide instead -- its
+  // first move is to list the runs and find the one being asked about.
   const runId = pathname.match(/^\/runs\/([^/]+)/)?.[1] ?? null;
 
   const listRef = useRef<HTMLDivElement>(null);
@@ -133,7 +179,9 @@ export function Lyra() {
         : [
             {
               from: "lyra",
-              text: `Hi ${username ?? "there"}, I'm Lyra. Ask me about this run: its match rate, what's sitting in exceptions, or where the cash lands. I read the same verified figures the scoreboard shows, so I won't guess a number.`,
+              text: runId
+                ? `Hi ${username ?? "there"}, I'm Lyra. Ask me about this run — its match rate, what's sitting in exceptions, where the cash lands, or how it compares to an earlier run. I read the same verified figures the scoreboard shows, and every number I give you is one I looked up.`
+                : `Hi ${username ?? "there"}, I'm Lyra. I can look across all your runs — which one went best, what changed between two of them, what's still open. Ask away.`,
             },
           ],
     );
@@ -167,7 +215,16 @@ export function Lyra() {
 
   async function submit(q: string) {
     const text = q.trim();
-    if (!text || busy || !runId) return;
+    if (!text || busy) return;
+
+    // The transcript so far, as the agent's memory. Sent from here because
+    // the server keeps no state between questions -- it is what makes "and
+    // the biggest one?" resolve against what was just said. The greeting is
+    // dropped: it is UI copy, not something Lyra needs read back to her.
+    const priorTurns = messages
+      .slice(1)
+      .map((m) => ({ role: m.from, text: m.text }))
+      .slice(-12);
 
     setMessages((prev) => [...prev, { from: "you", text }]);
     setQuestion("");
@@ -175,17 +232,25 @@ export function Lyra() {
     setWaited(0);
     setBusy(true);
     setDraft("");
+    setTrace([]);
 
     const controller = new AbortController();
     abortRef.current = controller;
     let draftText = "";
     let settled = false;
+    const steps: string[] = [];
 
     try {
       await readAskStream(
-        { run_id: runId, question: text },
+        { run_id: runId, question: text, history: priorTurns },
         (event) => {
           switch (event.type) {
+            case "tool": {
+              const label = String(event.label ?? event.name ?? "Looking something up");
+              steps.push(label);
+              setTrace([...steps]);
+              break;
+            }
             case "delta":
               draftText += String(event.text ?? "");
               setDraft(draftText);
@@ -206,9 +271,14 @@ export function Lyra() {
                   from: "lyra",
                   text: answer,
                   degraded: Boolean(event.degraded) || event.grounded === false,
+                  citations: (event.citations as Citation[] | undefined) ?? [],
+                  followUps: (event.follow_ups as string[] | undefined) ?? [],
+                  usage: event.usage as Usage | undefined,
+                  trace: [...steps],
                 },
               ]);
               setDraft("");
+              setTrace([]);
               break;
             }
             default:
@@ -244,15 +314,19 @@ export function Lyra() {
     } finally {
       abortRef.current = null;
       setBusy(false);
+      setTrace([]);
     }
   }
 
-  if (session.status !== "authenticated" || !runId) return null;
+  // Signed in is the only requirement now: off a run surface Lyra works
+  // across the account instead of being hidden.
+  if (session.status !== "authenticated") return null;
 
   return (
     <>
       {/* The handle: bottom right, clear of the status strip. */}
       <button
+        data-tour="lyra-open"
         type="button"
         onClick={openPanel}
         aria-expanded={open}
@@ -285,7 +359,7 @@ export function Lyra() {
         id="lyra-panel"
         role="dialog"
         aria-modal="true"
-        aria-label="Lyra: ask about a run"
+        aria-label="Lyra: ask about your reconciliation runs"
         className={
           "fixed inset-y-0 right-0 z-50 flex w-full max-w-[26rem] flex-col border-l border-hairline bg-surface transition-transform duration-250 ease-out " +
           (open ? "translate-x-0" : "translate-x-full")
@@ -300,7 +374,7 @@ export function Lyra() {
               Lyra
             </span>
             <span className="mono block truncate text-[11.5px] tracking-[0.08em] text-rail-ink">
-              GROUNDED ON RUN {runId.slice(0, 8)}
+              {runId ? `GROUNDED ON RUN ${runId.slice(0, 8)}` : "ACROSS ALL YOUR RUNS"}
             </span>
           </span>
           <button
@@ -343,7 +417,82 @@ export function Lyra() {
                   }
                 >
                   <Markdown text={m.text} />
+
+                  {/* What she read to answer. Collapsed by default -- it is
+                      provenance, not the answer, and it should be there when
+                      it is questioned rather than in the way when it is not. */}
+                  {m.trace && m.trace.length > 0 && (
+                    <details className="mt-2.5 group">
+                      <summary className="mono cursor-pointer list-none text-[11px] tracking-[0.07em] text-faint hover:text-muted">
+                        {m.trace.length} LOOKUP{m.trace.length === 1 ? "" : "S"}
+                        {m.usage ? ` · ${m.usage.input_tokens + m.usage.output_tokens} TOKENS` : ""}
+                        <span aria-hidden className="ml-1 inline-block group-open:hidden">
+                          ▸
+                        </span>
+                        <span aria-hidden className="ml-1 hidden group-open:inline-block">
+                          ▾
+                        </span>
+                      </summary>
+                      <ol className="mt-1.5 space-y-1 border-l border-hairline pl-2.5">
+                        {m.trace.map((step, n) => (
+                          <li key={n} className="text-[12.5px] leading-snug text-faint">
+                            {step}
+                          </li>
+                        ))}
+                      </ol>
+                    </details>
+                  )}
+
+                  {/* Every id she named, as a link to where it can be checked.
+                      Collected server-side from tool results, so a chip only
+                      exists for a record a tool actually returned. */}
+                  {m.citations && m.citations.length > 0 && (
+                    <div className="mt-2.5 flex flex-wrap gap-1.5">
+                      {m.citations.map((c) => {
+                        const href = citationHref(runId, c);
+                        const body = (
+                          <>
+                            <span className="text-faint">{KIND_LABEL[c.kind] ?? c.kind}</span>{" "}
+                            <span className="mono">{c.id}</span>
+                          </>
+                        );
+                        return href ? (
+                          <a
+                            key={c.id}
+                            href={href}
+                            className="rounded-[3px] border border-hairline bg-sunk px-1.5 py-0.5 text-[11.5px] hover:border-hairline-strong"
+                          >
+                            {body}
+                          </a>
+                        ) : (
+                          <span
+                            key={c.id}
+                            className="rounded-[3px] border border-hairline bg-sunk px-1.5 py-0.5 text-[11.5px]"
+                          >
+                            {body}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
+
+                {/* Where to go next. Derived from the tools this answer used,
+                    so it costs no extra model call. */}
+                {!busy && m.followUps && m.followUps.length > 0 && i === messages.length - 1 && (
+                  <div className="mt-2.5 flex flex-wrap gap-2 pl-3">
+                    {m.followUps.map((f) => (
+                      <button
+                        key={f}
+                        type="button"
+                        onClick={() => submit(f)}
+                        className="btn btn-sm text-left"
+                      >
+                        {f}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             ),
           )}
@@ -362,17 +511,32 @@ export function Lyra() {
           )}
 
           {busy && !draft && (
-            <div className="flex items-center gap-2.5 text-[13.5px] text-muted">
-              <span aria-hidden className="pulse-dot h-1.5 w-1.5 rounded-full bg-readout-hi" />
-              {waited > PATIENCE_SECONDS
-                ? `Still working; the agent can take up to a minute (${waited}s)`
-                : "Thinking…"}
+            <div className="space-y-1.5">
+              {/* Each lookup, as it happens. The steps that are finished stay
+                  on screen: the point is to show the work, and a step that
+                  vanishes proves nothing. */}
+              {trace.map((step, n) => (
+                <div key={n} className="flex items-center gap-2.5 text-[13px] text-faint">
+                  <span aria-hidden className="text-readout-hi">
+                    ✓
+                  </span>
+                  {step}
+                </div>
+              ))}
+              <div className="flex items-center gap-2.5 text-[13.5px] text-muted">
+                <span aria-hidden className="pulse-dot h-1.5 w-1.5 rounded-full bg-readout-hi" />
+                {waited > PATIENCE_SECONDS
+                  ? `Still working (${waited}s)`
+                  : trace.length > 0
+                    ? "Reading what came back…"
+                    : "Thinking…"}
+              </div>
             </div>
           )}
 
           {messages.length <= 1 && !busy && !draft && (
             <div className="flex flex-wrap gap-2 pt-1">
-              {SUGGESTIONS.map((s) => (
+              {(runId ? SUGGESTIONS : GLOBAL_SUGGESTIONS).map((s) => (
                 <button
                   key={s}
                   type="button"
@@ -401,7 +565,7 @@ export function Lyra() {
             id="lyra-input"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
-            placeholder="Ask about this run…"
+            placeholder={runId ? "Ask about this run…" : "Ask about your runs…"}
             className="field flex-1"
           />
           <button type="submit" disabled={busy || !question.trim()} className="btn btn-primary">

@@ -13,6 +13,29 @@ uv run uvicorn app.main:app --reload
 
 Set `DATABASE_URL` and `REDIS_URL` in `backend/.env` (see `app/settings.py`) for the app to enable auth and rate limiting; without them it still starts and serves `/health`, but any route needing the database or Redis returns a `503`.
 
+### Gemini API keys
+
+`GEMINI_API_KEY` takes **one key or a comma-separated list of any length**:
+
+```
+GEMINI_API_KEY=AIzaSy...one,AIzaSy...two,AIzaSy...three
+```
+
+Free-tier quota is charged per key, so the pool is not cosmetic: the governor
+keeps its RPM and RPD counters per `(model, key)` (`llm/keys.py`,
+`llm/governor.py`), and every call takes the next key in rotation. Three keys
+are three times the daily ceiling rather than one ceiling reached three times
+as fast, and a key that runs out is stepped over -- the request moves to the
+next key instead of degrading. Keys are counted under a digest of the key
+itself, so reordering the list or restarting mid-day does not hand a spent key
+a fresh allowance, and the credential never appears in a log line or traceback.
+
+`GEMMA_PRIMARY_RPD` and friends (`llm/limits.py`) stay the ceiling for **one**
+key -- the pool multiplies them; don't also multiply them by hand.
+
+With no key set at all, the app still runs: every LLM path degrades honestly
+(`assist_rate=0`, `llm_degraded=True`) rather than failing.
+
 ## Auth cookie / cross-origin decision
 
 Sessions are httpOnly, `SameSite=Lax` cookies (`db/tenancy.py`, `app/routers/auth.py`). The chosen approach for cross-origin cookie handling (Phase 9 of the plan) is the **Next.js route-handler proxy**: the web app's server-side route handlers forward requests to the FastAPI backend, so the browser only ever talks to one origin (the Next.js app's own domain) and never sees the API's origin directly. This avoids `SameSite`/CORS credential complications entirely and needs no shared parent-domain cookie configuration. `secure` is set on the cookie whenever `settings.env != "dev"` (plain HTTP is expected in local dev; TLS termination is expected in front of the app otherwise).

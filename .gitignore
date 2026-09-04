@@ -5,3 +5,36 @@
 # LOG_DIR (see backend/app/logging_config.py); none of it belongs in git.
 logs/
 *.log
+
+# Next.js build output. frontend/.gitignore anchors its own rule to that
+# directory, which leaves a stray build dropped anywhere else -- running a
+# next command with the wrong working directory produces one -- untracked but
+# offered on every `git status`. Unanchored here so it is ignored wherever it
+# lands.
+.next/
+out/
+node_modules/
+
+# Python bytecode and tool caches, for the same reason: backend/.gitignore
+# only covers the backend tree, and a stray __pycache__ elsewhere is still
+# noise.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.import_linter_cache/
+
+# Local environment and secrets. GEMINI_API_KEY lives here; it must never be
+# committed, and the pattern is repeated at the root rather than left to
+# backend/.gitignore so a .env added anywhere is covered by default.
+.env
+.env.*
+!.env.example
+
+# Editor and OS droppings.
+.DS_Store
+.idea/
+.vscode/
+*.swp

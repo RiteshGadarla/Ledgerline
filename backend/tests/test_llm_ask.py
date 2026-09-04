@@ -5,7 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from db.passwords import hash_password
 from db.tenancy import complete_run, create_run, create_user
-from llm.ask import AskToolCall, AskTurn, ScriptedAskClient, _is_grounded, ask
+from llm.ask import MAX_TOOL_HOPS, AskToolCall, AskTurn, ScriptedAskClient, _is_grounded, ask
 from llm.governor import Governor
 from llm.models import BACKUP_MODEL, PRIMARY_MODEL
 
@@ -145,22 +145,29 @@ async def test_tool_error_is_relayed_without_the_model_inventing_data(
     assert "do not have" in answer.text.lower()
 
 
-async def test_a_question_never_costs_more_than_three_requests(
+async def test_a_question_is_bounded_by_the_hop_cap_however_long_the_model_keeps_looking(
     db_session_factory: async_sessionmaker[AsyncSession], redis_client: redis.Redis
 ) -> None:
+    """A model that keeps calling tools must run out of lookups, not run
+    forever. Written against MAX_TOOL_HOPS rather than a fixed number so
+    raising the cap changes the budget, never the guarantee."""
     run_id, user_id = await _completed_run(db_session_factory, "ask-budget")
+    # One more tool call than the loop can possibly make, then an answer that
+    # is therefore unreachable.
     client = ScriptedAskClient(
         turns=[
-            AskTurn(tool_call=AskToolCall(name="get_metrics", args={"run_id": run_id})),
-            AskTurn(tool_call=AskToolCall(name="get_metrics", args={"run_id": run_id})),
-            AskTurn(tool_call=AskToolCall(name="get_metrics", args={"run_id": run_id})),
+            *[
+                AskTurn(tool_call=AskToolCall(name="get_metrics", args={"run_id": run_id}))
+                for _ in range(MAX_TOOL_HOPS + 1)
+            ],
             AskTurn(text="This should never be reached."),
         ]
     )
     async with db_session_factory() as db:
         answer = await ask("Loop forever?", run_id, user_id, db, client, _governor(redis_client))
 
-    assert answer.requests_issued == 3
+    assert answer.requests_issued == MAX_TOOL_HOPS + 1, "one request per hop, and not one more"
+    assert client.calls < len(client.turns), "the final scripted answer must never be reached"
     assert "allotted lookups" in answer.text
 
 

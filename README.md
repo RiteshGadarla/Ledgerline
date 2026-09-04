@@ -14,7 +14,7 @@ cherry-picked match.
 
 ## The result
 
-**300 runs. 267,602 records. Zero false matches.**
+**300 runs. 267,172 records. Zero false matches.**
 
 Measured on 30 held-out seeds the engine was never developed against
 (5001-5030, asserted disjoint from the golden seeds in `scripts/eval.py`), at
@@ -22,18 +22,26 @@ three corpus sizes, then repeated once per corruption the adversarial mutation
 engine can apply. Reproduce the whole table with
 `cd backend && uv run python -m scripts.benchmark`.
 
+Fifteen percent of every generated corpus is a seeded difficulty rather than a
+clean tie-out, spread across ten classes -- fee and GST deltas, refunds and
+chargebacks inside a batch, split payments, dates outside the window, duplicate
+captures, narrations with no UTR, payer-name mismatches, unrelated credits and
+genuinely unmatchable records. Each class scales with the batch, so a class's
+recall is computed from a sample rather than from the single record it used to
+get, where the figure could only ever read 0% or 100%.
+
 | Corpus                             | Runs | Records | Precision | Recall | False matches | Auto | Exceptions | Throughput |
 |------------------------------------|-----:|--------:|----------:|-------:|--------------:|-----:|-----------:|-----------:|
-| clean · 150 records                |   30 |   9,560 |     1.000 |  0.892 |             0 | 0.884 |       37.7 | 592,412/s |
-| clean · 600 records                |   30 |  38,248 |     1.000 |  0.973 |             0 | 0.970 |       38.5 | 561,391/s |
-| clean · 2400 records               |   30 | 152,814 |     1.000 |  0.993 |             0 | 0.992 |       43.4 | 374,468/s |
-| corrupted · duplicate_payment      |   30 |   9,590 |     1.000 |  0.892 |             0 | 0.878 |       38.7 | 583,589/s |
-| corrupted · shift_date:45          |   30 |   9,560 |     1.000 |  0.788 |             0 | 0.777 |       71.7 | 477,439/s |
-| corrupted · alter_amount:-150000   |   30 |   9,560 |     1.000 |  0.791 |             0 | 0.764 |       75.3 | 446,548/s |
-| corrupted · delete_bank_line       |   30 |   9,530 |     1.000 |  0.788 |             0 | 0.777 |       70.7 | 458,315/s |
-| corrupted · inject_unrelated_credit |   30 |   9,590 |     1.000 |  0.892 |             0 | 0.884 |       38.7 | 574,095/s |
-| corrupted · scramble_narration     |   30 |   9,560 |     1.000 |  0.784 |             0 | 0.769 |       74.1 | 456,961/s |
-| corrupted · split_payment          |   30 |   9,590 |     1.000 |  0.791 |             0 | 0.759 |       76.3 | 432,848/s |
+| clean · 150 records                |   30 |   9,545 |     1.000 |  0.781 |             0 | 0.764 |       76.3 | 433,407/s |
+| clean · 600 records                |   30 |  38,158 |     1.000 |  0.779 |             0 | 0.749 |      324.7 | 433,795/s |
+| clean · 2400 records               |   30 | 152,594 |     1.000 |  0.776 |             0 | 0.746 |     1312.0 | 349,110/s |
+| corrupted · duplicate_payment      |   30 |   9,575 |     1.000 |  0.781 |             0 | 0.759 |       77.3 | 402,919/s |
+| corrupted · shift_date:45          |   30 |   9,545 |     1.000 |  0.679 |             0 | 0.690 |      100.5 | 386,222/s |
+| corrupted · alter_amount:-150000   |   30 |   9,545 |     1.000 |  0.678 |             0 | 0.685 |      102.0 | 373,932/s |
+| corrupted · delete_bank_line       |   30 |   9,515 |     1.000 |  0.679 |             0 | 0.690 |       99.5 | 382,316/s |
+| corrupted · inject_unrelated_credit |   30 |   9,575 |     1.000 |  0.781 |             0 | 0.764 |       77.3 | 403,042/s |
+| corrupted · scramble_narration     |   30 |   9,545 |     1.000 |  0.671 |             0 | 0.684 |      102.4 | 393,623/s |
+| corrupted · split_payment          |   30 |   9,575 |     1.000 |  0.678 |             0 | 0.680 |      103.0 | 379,432/s |
 
 Read the two halves together, because the second one is the point.
 
@@ -44,14 +52,16 @@ is written, and a proposal that fails becomes an exception rather than a match.
 
 **Recall falls under sabotage, and that is the honest outcome.** Corrupting a
 date, an amount or a narration genuinely destroys the evidence a match needs.
-The engine answers by filing exceptions -- about 38 on a clean 150-record
-corpus, about 75 once records have been corrupted -- rather than by guessing.
+The engine answers by filing exceptions -- about 76 on a clean 150-record
+corpus, about 100 once records have been corrupted -- rather than by guessing.
 An engine whose recall held steady under sabotage would be inventing matches,
 and its precision would say so.
 
-**Recall improves with corpus size** (0.892 at 150 records, 0.993 at 2,400): a
-larger batch carries more of the counterpart records a chain needs to close, so
-the unmatchable tail is a smaller share of it.
+**Recall is flat across corpus sizes** (0.781 at 150 records, 0.776 at 2,400)
+because the difficulty mix is held constant by construction: 15% of every
+corpus is a seeded hard case, spread across ten classes that scale with the
+batch. A bigger run is therefore more evidence for the same claim rather than
+an easier corpus flattering the number.
 
 The throughput column times `engine.match()` alone -- no ingestion, no LLM
 triage, no database -- because a throughput figure that quietly includes or

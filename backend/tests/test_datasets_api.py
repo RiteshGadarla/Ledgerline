@@ -239,7 +239,10 @@ def test_deleting_a_dataset_takes_its_files_and_its_runs_with_it(runs_client: Te
     assert response.json() == {"dataset_id": dataset_id, "runs_deleted": 1}
     assert runs_client.get(f"/datasets/{dataset_id}").status_code == 404
     assert runs_client.get(f"/runs/{run_id}").status_code == 404
-    assert runs_client.get("/datasets").json() == []
+    # The account still holds the demo corpus it was registered with; what
+    # must be gone is this dataset, not every dataset.
+    remaining = {d["id"] for d in runs_client.get("/datasets").json()}
+    assert dataset_id not in remaining
 
 
 def test_deleting_a_dataset_leaves_another_datasets_runs_alone(runs_client: TestClient) -> None:

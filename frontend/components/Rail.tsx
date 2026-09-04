@@ -99,6 +99,7 @@ export function Rail() {
             <li key={link.href} className="flex-1 md:flex-none">
               <Link
                 href={link.href}
+                data-tour={`rail-${link.label.toLowerCase()}`}
                 aria-current={active ? "page" : undefined}
                 className={
                   "relative flex min-h-[56px] flex-col items-center justify-center gap-1 rounded-[3px] px-1 py-1.5 transition-colors " +

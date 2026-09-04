@@ -9,6 +9,16 @@ from llm.client import LlmClient, LlmResponse, LlmUnavailable
 from llm.governor import Governor
 from money.result import Err, Ok, Result
 
+# Two in flight per credential: enough to overlap the round trips without
+# turning a retry storm into a burst the provider answers with more 503s.
+CALLS_PER_KEY = 2
+MAX_CONCURRENCY = 8
+
+
+class _GovernorRefused(Exception):
+    """Quota or rate limit, as opposed to a provider failure. Deliberately not
+    an `LlmTransientError`: `with_backoff` must not retry it."""
+
 
 @dataclass
 class LlmGateway:
@@ -25,6 +35,19 @@ class LlmGateway:
     governor: Governor
     cache: ResponseCache
     schema_version: str
+
+    def suggested_concurrency(self) -> int:
+        """How many calls a caller may have in flight at once.
+
+        Scaled to the pool because free-tier quota is per credential: two keys
+        are two independent per-minute windows, and holding concurrency at one
+        would leave the second idle. Capped because the ceiling here is not
+        this process -- it is the provider, which answers a burst with the same
+        503 that made this stage unreliable in the first place. The governor
+        still refuses anything over quota underneath, so this is a throttle,
+        not a permission.
+        """
+        return min(MAX_CONCURRENCY, max(1, len(self.governor.keys) * CALLS_PER_KEY))
 
     async def generate(
         self,
@@ -47,21 +70,42 @@ class LlmGateway:
 
         for candidate in chain:
             cached = await self.cache.get(candidate, prompt, self.schema_version)
-            if cached is not None and _is_valid(cached, response_schema):
-                return Ok(LlmResponse(raw_json=cached, input_tokens=0, output_tokens=0))
+            if cached is not None and _is_valid(cached.raw_json, response_schema):
+                # The stored token counts, not zeroes. A run's scoreboard
+                # reports what the work cost, and answering "how much did this
+                # reconciliation take?" with 0 because yesterday's identical
+                # run paid for it describes the cache, not the run.
+                return Ok(
+                    LlmResponse(
+                        raw_json=cached.raw_json,
+                        input_tokens=cached.input_tokens,
+                        output_tokens=cached.output_tokens,
+                    )
+                )
 
         last_reason = "no model available"
         for candidate in chain:
-            reservation = await self.governor.check_and_reserve(candidate, user_id)
-            if isinstance(reservation, Err):
-                last_reason = f"{candidate}: {reservation.reason}"
-                continue
-
+            # Reserved per attempt rather than once per model. Two reasons: a
+            # retry is a real request and has to be counted against a real
+            # credential, which the old shape did not do -- three attempts
+            # spent one reservation's worth of quota. And re-reserving rotates
+            # to the next key in the pool, so a retry is not a second go at
+            # whichever credential just failed.
             async def _call(name: str = candidate) -> LlmResponse:
-                return await self.client.generate(model=name, prompt=prompt, response_schema=response_schema)
+                reservation = await self.governor.check_and_reserve(name, user_id)
+                if isinstance(reservation, Err):
+                    raise _GovernorRefused(reservation.reason)
+                return await self.client.generate(
+                    model=name, prompt=prompt, response_schema=response_schema, api_key=reservation.value
+                )
 
             try:
-                response = await with_backoff(_call, max_attempts=3)
+                response = await with_backoff(_call)
+            except _GovernorRefused as exc:
+                # Out of quota is not a transient failure and retrying it just
+                # burns the clock: move to the next model in the chain.
+                last_reason = f"{candidate}: {exc}"
+                continue
             except (LlmTransientError, LlmUnavailable) as exc:
                 last_reason = f"{candidate}: llm unavailable after retries: {exc}"
                 continue
@@ -70,7 +114,14 @@ class LlmGateway:
                 last_reason = f"{candidate}: schema violation: model output did not match response_schema"
                 continue
 
-            await self.cache.set(candidate, prompt, self.schema_version, response.raw_json)
+            await self.cache.set(
+                candidate,
+                prompt,
+                self.schema_version,
+                response.raw_json,
+                response.input_tokens,
+                response.output_tokens,
+            )
             return Ok(response)
 
         return Err(last_reason)

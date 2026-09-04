@@ -100,7 +100,12 @@ async def run_pipeline(
     metrics = score_run(corpus, combined_result, truth, elapsed_seconds)
     metrics = metrics.model_copy(
         update={
-            "llm_requests": triage_outcome.requests_issued + (1 if remaining_exceptions else 0),
+            # `explain` issues exactly one request, and only when it had
+            # something to explain and got an answer back. Counting it
+            # whenever there were exceptions credited the run with a request
+            # that a degraded stage never made.
+            "llm_requests": triage_outcome.requests_issued
+            + (1 if remaining_exceptions and not explain_degraded else 0),
             "llm_tokens": triage_outcome.tokens_used + explain_in_tokens + explain_out_tokens,
             "llm_degraded": triage_outcome.degraded or explain_degraded,
         }

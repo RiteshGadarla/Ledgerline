@@ -2,8 +2,11 @@
 
 import { use } from "react";
 import { Readout, StatGroup, StatRow, Ticks } from "@/components/Stat";
+import { formatClassName } from "@/lib/difficulty";
 import { InfoDot } from "@/components/InfoDot";
+import { Impact } from "@/components/Impact";
 import { Loading } from "@/components/Surface";
+import { runImpact } from "@/lib/impact";
 import { formatRupees } from "@/lib/money";
 import { percentCss, ticksForRate } from "@/lib/scale";
 import { useRun } from "@/lib/useRun";
@@ -19,21 +22,6 @@ function formatOptionalRate(rate: number | null | undefined): string {
 /** Milliseconds as the unit a reader of this figure actually thinks in. */
 function formatDuration(ms: number): string {
   return ms < 1000 ? `${ms.toFixed(0)} ms` : `${(ms / 1000).toFixed(2)} s`;
-}
-
-/**
- * `fee_gst_delta` is how the generator names a class; this is how a person in
- * finance reads it. GST and UTR are the two words in these names that are
- * acronyms rather than words, and lowercasing them reads as a typo.
- */
-const ACRONYMS: Record<string, string> = { gst: "GST", utr: "UTR" };
-
-function formatClassName(name: string): string {
-  const words = name
-    .split("_")
-    .map((word) => ACRONYMS[word] ?? word)
-    .join(" ");
-  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 type ClassRow = { name: string; count: number; recall: number | null | undefined };
@@ -158,6 +146,10 @@ export default function ScoreboardPage({ params }: { params: Promise<{ id: strin
   // dashes and explain them away, the panel is simply not there: a figure that
   // cannot be measured is not a figure this surface should show.
   const scored = m.precision !== null && m.precision !== undefined;
+  // Absent for runs completed before the payment counts were stored: there is
+  // no honest way back to a payment total from a percentage, so the panel is
+  // simply not drawn rather than estimated.
+  const impact = runImpact(m);
   // Widest class first: the one carrying most of the corpus is the one whose
   // recall the headline rate is mostly made of.
   const byClass: ClassRow[] = Object.entries(m.by_class ?? {})
@@ -166,6 +158,11 @@ export default function ScoreboardPage({ params }: { params: Promise<{ id: strin
 
   return (
     <>
+      {/* What the run was worth, before how right it was. The rates below are
+          the engine's report on itself; this is the run read as work done,
+          and it is the first thing a finance lead is actually asking. */}
+      {impact && <Impact impact={impact} />}
+
       {/* The four figures a finance lead reads first. The tick scale under
           each is lit from the same rate the number reports. */}
       <div className="grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(230px,1fr))]">
@@ -198,10 +195,19 @@ export default function ScoreboardPage({ params }: { params: Promise<{ id: strin
         />
       </div>
 
+      {/* `llm_degraded` is set when *any* triage call failed, not only when
+          they all did, so the message must not claim an assist rate of zero
+          while the tile above it reads 9.5%. What is always true is the part
+          that matters: whatever could not be triaged was filed rather than
+          guessed at. */}
       {m.llm_degraded && (
         <p className="rounded-[3px] border border-caution bg-caution-bg px-4 py-3 text-sm text-caution">
-          Assisted triage degraded on this run. Assist rate reports zero and every item that would
-          have gone to triage is filed as a typed exception instead.
+          Assisted triage degraded on this run: some calls to the model did not complete.
+          {m.assist_rate > 0
+            ? " The items that were triaged were re-checked before anything was written, and everything else was filed as a typed exception."
+            : " Nothing was triaged, and every item that would have gone to triage was filed as a typed exception instead."}{" "}
+          Nothing was guessed at either way, so the open exception count is higher than a clean run
+          would produce rather than the match rate being inflated.
         </p>
       )}
 
@@ -248,7 +254,7 @@ export default function ScoreboardPage({ params }: { params: Promise<{ id: strin
             <StatRow
               label="Tokens"
               value={m.llm_tokens.toLocaleString()}
-              note="In and out, across triage and explanations."
+              note="In and out, across triage and explanations. An answer served from cache is counted at what it originally cost, so this is what the run's work is worth rather than what today's attempt happened to spend."
             />
             <StatRow
               label="Assisted triage"

@@ -524,9 +524,11 @@ export interface components {
         /** AskRequest */
         AskRequest: {
             /** Run Id */
-            run_id: string;
+            run_id?: string | null;
             /** Question */
             question: string;
+            /** History */
+            history?: components["schemas"]["AskTurnIn"][];
         };
         /** AskResponseOut */
         AskResponseOut: {
@@ -534,6 +536,19 @@ export interface components {
             answer: string;
             /** Degraded */
             degraded: boolean;
+        };
+        /**
+         * AskTurnIn
+         * @description One prior turn of the conversation, replayed for context.
+         */
+        AskTurnIn: {
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "you" | "lyra";
+            /** Text */
+            text: string;
         };
         /** Body_preview_endpoint_data_preview_post */
         Body_preview_endpoint_data_preview_post: {
@@ -923,6 +938,14 @@ export interface components {
             open_exceptions: number;
             /** Amount At Risk */
             amount_at_risk: number;
+            /** Payments Total */
+            payments_total?: number | null;
+            /** Payments Auto */
+            payments_auto?: number | null;
+            /** Payments Assisted */
+            payments_assisted?: number | null;
+            /** Amount Cleared */
+            amount_cleared?: number | null;
             /** Throughput Rps */
             throughput_rps: number;
             /** P50 Ms */

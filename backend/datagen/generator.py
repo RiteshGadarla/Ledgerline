@@ -48,36 +48,86 @@ _METHOD_WEIGHTS = [40, 30, 18, 12]
 # Hour-of-day capture profile: a lunchtime peak, a heavier evening peak, a thin
 # overnight tail. Retail payments are not uniform across the clock.
 _HOUR_WEIGHTS = [
-    1, 1, 1, 1, 1, 2, 4, 8, 14, 22, 30, 38,  # 00:00 - 11:59
-    40, 34, 28, 26, 28, 34, 44, 52, 48, 34, 18, 6,  # 12:00 - 23:59
+    1,
+    1,
+    1,
+    1,
+    1,
+    2,
+    4,
+    8,
+    14,
+    22,
+    30,
+    38,  # 00:00 - 11:59
+    40,
+    34,
+    28,
+    26,
+    28,
+    34,
+    44,
+    52,
+    48,
+    34,
+    18,
+    6,  # 12:00 - 23:59
 ]
 
 _CUSTOMER_NAMES = [
-    "Acme Traders Pvt Ltd", "Globex Industries Ltd", "Initech Retail LLP",
-    "Umbrella Foods Pvt Ltd", "Wayne Logistics Pvt Ltd", "Stark Components Ltd",
-    "Wonka Confectionery Pvt Ltd", "Hooli Systems India Pvt Ltd",
-    "Soylent Distributors LLP", "Vandelay Exports Pvt Ltd",
-    "Pied Piper Textiles Pvt Ltd", "Aperture Hardware Pvt Ltd",
-    "Cyberdyne Traders LLP", "Gringotts Finance Pvt Ltd",
-    "Oscorp Chemicals Ltd", "Massive Dynamic India Pvt Ltd",
-    "Sterling Cooper Advertising LLP", "Bluth Frozen Foods Pvt Ltd",
-    "Dunder Mifflin Paper Co", "Prestige Worldwide Pvt Ltd",
-    "Nakatomi Trading Pvt Ltd", "Tyrell Biosciences Ltd",
-    "Weyland Metals Pvt Ltd", "Zorg Instruments LLP",
-    "Monarch Solar Pvt Ltd", "Trivedi & Sons", "Rao Brothers Traders",
-    "Krishna Enterprises", "Shree Balaji Agencies", "Ganesh Auto Spares",
-    "Deccan Polymers Pvt Ltd", "Konkan Seafoods LLP",
-    "Malabar Spice Exports Pvt Ltd", "Chandni Chowk Textiles",
-    "Nilgiri Tea Estates Pvt Ltd", "Rajasthan Marble Depot",
-    "Coromandel Packaging Ltd", "Vindhya Cement Traders",
-    "Kaveri Irrigation Pvt Ltd", "Sundaram Fasteners Depot",
+    "Acme Traders Pvt Ltd",
+    "Globex Industries Ltd",
+    "Initech Retail LLP",
+    "Umbrella Foods Pvt Ltd",
+    "Wayne Logistics Pvt Ltd",
+    "Stark Components Ltd",
+    "Wonka Confectionery Pvt Ltd",
+    "Hooli Systems India Pvt Ltd",
+    "Soylent Distributors LLP",
+    "Vandelay Exports Pvt Ltd",
+    "Pied Piper Textiles Pvt Ltd",
+    "Aperture Hardware Pvt Ltd",
+    "Cyberdyne Traders LLP",
+    "Gringotts Finance Pvt Ltd",
+    "Oscorp Chemicals Ltd",
+    "Massive Dynamic India Pvt Ltd",
+    "Sterling Cooper Advertising LLP",
+    "Bluth Frozen Foods Pvt Ltd",
+    "Dunder Mifflin Paper Co",
+    "Prestige Worldwide Pvt Ltd",
+    "Nakatomi Trading Pvt Ltd",
+    "Tyrell Biosciences Ltd",
+    "Weyland Metals Pvt Ltd",
+    "Zorg Instruments LLP",
+    "Monarch Solar Pvt Ltd",
+    "Trivedi & Sons",
+    "Rao Brothers Traders",
+    "Krishna Enterprises",
+    "Shree Balaji Agencies",
+    "Ganesh Auto Spares",
+    "Deccan Polymers Pvt Ltd",
+    "Konkan Seafoods LLP",
+    "Malabar Spice Exports Pvt Ltd",
+    "Chandni Chowk Textiles",
+    "Nilgiri Tea Estates Pvt Ltd",
+    "Rajasthan Marble Depot",
+    "Coromandel Packaging Ltd",
+    "Vindhya Cement Traders",
+    "Kaveri Irrigation Pvt Ltd",
+    "Sundaram Fasteners Depot",
 ]
 
 # What the *bank* calls them: truncated, abbreviated, sometimes just wrong.
 _ALT_TRADE_NAMES = [
-    "AT ENTERPRISES PVT LTD", "GI HOLDINGS LLP", "IR COMMERCE PVT LTD",
-    "UF DISTRIBUTION CO", "WL FREIGHT PVT LTD", "S COMPONENTS INDIA",
-    "PIED PIPER TEX", "M/S TRIVEDI AND SO", "SHREE BALAJI AGENC",
+    "AT ENTERPRISES PVT LTD",
+    "GI HOLDINGS LLP",
+    "IR COMMERCE PVT LTD",
+    "UF DISTRIBUTION CO",
+    "WL FREIGHT PVT LTD",
+    "S COMPONENTS INDIA",
+    "PIED PIPER TEX",
+    "M/S TRIVEDI AND SO",
+    "SHREE BALAJI AGENC",
 ]
 
 _IFSC_PREFIXES = ["HDFC", "ICIC", "SBIN", "UTIB", "KKBK", "YESB", "IDFB", "PUNB"]
@@ -157,11 +207,56 @@ class _Unit:
     payments: list[Payment]
 
 
+# What share of a corpus is a hard case rather than a clean tie-out.
+#
+# The plan used to plant exactly one record per class whatever the size, which
+# made every class recall either 0% or 100% and nothing in between: a corpus of
+# 150 records scored ten difficulty classes off a single example each. A figure
+# computed from one record is an anecdote, and this project's whole argument is
+# that one cherry-picked match proves nothing.
+#
+# Fifteen percent is a deliberate over-representation: real books are not this
+# difficult, and that is the point. The clean case is the one needing no
+# evidence, so a generator that mostly emits it measures the easy path over and
+# over. Enough hard cases to score, not so many that the corpus stops
+# resembling a set of books.
+HARD_SHARE = 0.15
+
+
 def _build_class_plan(rng: random.Random, size: int) -> list[DifficultyClass]:
-    classes = [c for c in DifficultyClass if c != DifficultyClass.CLEAN]
-    plan: list[DifficultyClass] = list(classes[: min(len(classes), size)])
-    while len(plan) < size:
-        plan.append(DifficultyClass.CLEAN)
+    """Which difficulty class each unit of the corpus is built to exercise.
+
+    Every class scales with the corpus instead of appearing once, so a bigger
+    dataset buys more of each hard case to be scored on rather than a longer
+    tail of clean ones. Deterministic in `rng`: the same seed plans the same
+    corpus, which is what makes a run reproducible from its URL.
+    """
+    classes: list[DifficultyClass] = [c for c in DifficultyClass if c != DifficultyClass.CLEAN]
+
+    # Too small to carry one of each: take as many distinct classes as fit, so
+    # a tiny corpus still exercises different code paths rather than repeating
+    # the first one.
+    if size <= len(classes):
+        head: list[DifficultyClass] = list(classes[:size])
+        rng.shuffle(head)
+        return head
+
+    # At least one clean tie-out survives however the share rounds.
+    budget = min(size - 1, round(size * HARD_SHARE))
+    base, remainder = divmod(budget, len(classes))
+    counts = {difficulty: base for difficulty in classes}
+    # The remainder goes to a seeded sample rather than to whichever classes
+    # happen to be declared first, so no class is systematically the larger one
+    # across every seed.
+    for difficulty in rng.sample(classes, remainder):
+        counts[difficulty] += 1
+    # The floor is applied last, after the budget has been shared out. Applied
+    # first it would compound with the remainder and hand a small corpus far
+    # more hard cases than the share asks for.
+    counts = {difficulty: max(1, count) for difficulty, count in counts.items()}
+
+    plan: list[DifficultyClass] = [difficulty for difficulty, count in counts.items() for _ in range(count)]
+    plan.extend([DifficultyClass.CLEAN] * (size - len(plan)))
     rng.shuffle(plan)
     return plan
 
@@ -212,9 +307,7 @@ def _make_payment(
     )
 
 
-def _build_units(
-    rng: random.Random, plan: list[DifficultyClass]
-) -> tuple[list[_Unit], int, list[Payment]]:
+def _build_units(rng: random.Random, plan: list[DifficultyClass]) -> tuple[list[_Unit], int, list[Payment]]:
     seq = 0
     current_date = _ANCHOR_DATE
     units: list[_Unit] = []
@@ -314,9 +407,7 @@ def _adjustments(rng: random.Random, gross_total: Paise) -> Paise:
     return Paise(rng.choice([-500, -250, -100, -50, 50, 100, 250, 500]))
 
 
-def _narration(
-    rng: random.Random, utr: str, batch_index: int, missing_utr: bool, payer_mismatch: bool
-) -> str:
+def _narration(rng: random.Random, utr: str, batch_index: int, missing_utr: bool, payer_mismatch: bool) -> str:
     template = rng.choice(_MISSING_UTR_TEMPLATES if missing_utr else _NARRATION_TEMPLATES)
     narration = template.format(
         rail=rng.choice(_RAILS),

@@ -25,6 +25,7 @@ from typing import Any
 from fpdf import FPDF
 from fpdf.enums import Align, XPos, YPos
 
+from app.impact import SECONDS_PER_MANUAL_MATCH, format_duration, run_impact
 from contracts.models import CashForecast, Exception_, MatchGroup, RunMetrics
 from db.tenancy import RunRecord
 from engine.pipeline import deserialize_match_result
@@ -435,6 +436,44 @@ def build_run_report(run: RunRecord, generated: datetime | None = None) -> bytes
         pdf.ln(2)
 
     _section(pdf, "01", "The verdict", "What this batch did, before anything else is said about it.")
+
+    # What the run was worth, above how right it was -- the same order the
+    # scoreboard uses, and for the same reason: the rates are the engine's
+    # report on itself, and this is the run read as work done. Absent on a run
+    # completed before the payment counts were stored, rather than estimated
+    # back out of a percentage.
+    impact = run_impact(metrics) if metrics else None
+    if impact:
+        _tiles(
+            pdf,
+            [
+                ("Cleared without a human", f"{impact.cleared_without_a_human:,}", POSITIVE),
+                ("Time returned", format_duration(impact.seconds_saved), POSITIVE),
+                ("Rupees cleared", rupees(impact.amount_cleared), POSITIVE),
+                (
+                    "Still needs a human",
+                    f"{impact.still_needs_a_human:,}",
+                    CAUTION if impact.still_needs_a_human else POSITIVE,
+                ),
+            ],
+        )
+        pdf.ln(1.5)
+        pdf.set_font(SANS, "", 7)
+        pdf.set_text_color(*FAINT)
+        pdf.multi_cell(
+            CONTENT,
+            3.2,
+            _latin1(
+                f"Cleared counts the {impact.cleared_without_a_human:,} of {impact.payments_total:,} payments that "
+                f"ended in a verified chain. Time returned assumes {SECONDS_PER_MANUAL_MATCH}s to tie out one chain "
+                "by hand -- an assumption, not a measurement. Open exceptions are never counted as time saved: "
+                "they are the work that is left."
+            ),
+            new_x=XPos.LMARGIN,
+            new_y=YPos.NEXT,
+        )
+        pdf.ln(2.5)
+
     if metrics:
         _tiles(
             pdf,
