@@ -50,7 +50,10 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
       setError(describeAuthError(apiError, mode));
       return;
     }
-    router.push("/run");
+    // Replace, not push: the form behind us was just consumed, and Back from
+    // the console should leave the app rather than re-present a filled-in
+    // sign-up whose username is now taken.
+    router.replace("/run");
   }
 
   return (

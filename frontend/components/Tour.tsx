@@ -6,6 +6,7 @@ import {
   TOUR_STEPS,
   type TourStep,
   markTourDone,
+  setTourRunning,
   stepMatchesRoute,
   tourDone,
 } from "@/lib/tour";
@@ -40,6 +41,7 @@ export function Tour() {
 
   const finish = useCallback(() => {
     setRunning(false);
+    setTourRunning(false);
     setRect(null);
     markTourDone();
   }, []);
@@ -50,9 +52,13 @@ export function Tour() {
     function begin() {
       setIndex(0);
       setRunning(true);
+      setTourRunning(true);
     }
     window.addEventListener("ledgerline:tour", begin);
-    return () => window.removeEventListener("ledgerline:tour", begin);
+    return () => {
+      window.removeEventListener("ledgerline:tour", begin);
+      setTourRunning(false);
+    };
   }, []);
 
   // Find the current step's anchor, skipping steps whose anchor is not on this
@@ -68,12 +74,24 @@ export function Tour() {
     // and skip a step whose control was about to appear.
     const waitingSince = performance.now();
     const PATIENCE_MS = 5000;
+    // A click-to-advance step advances the moment the control is pressed,
+    // which is a frame or two before the route that click triggers. Without
+    // this grace the tour reads its own in-flight navigation as the user
+    // wandering off and jumps to whichever later step matches the page it is
+    // about to leave -- which is how a tour that walks Run to Data to Run
+    // ends up skipping its middle.
+    const ROUTE_GRACE_MS = 900;
 
     function locate() {
       if (!step) return;
       if (!stepMatchesRoute(step, pathname)) {
-        // The user navigated away from where this step lives. Advance to the
-        // first step that belongs to where they actually are.
+        if (performance.now() - waitingSince < ROUTE_GRACE_MS) {
+          frame = window.requestAnimationFrame(locate);
+          return;
+        }
+        // The navigation never came: the user really did leave. Advance to the
+        // first step that belongs to where they actually are, and if this
+        // route has none left, wait quietly for one that does.
         const next = TOUR_STEPS.findIndex(
           (candidate, position) => position > index && stepMatchesRoute(candidate, pathname),
         );
@@ -230,11 +248,16 @@ export function Tour() {
               {last ? "Done" : "Next"}
             </button>
           )}
-          {index > 0 && !step.clickToAdvance && (
-            <button type="button" onClick={() => setIndex(index - 1)} className="btn btn-sm">
-              Back
-            </button>
-          )}
+          {/* Only back to a step that lives on this page. Stepping back across
+              a route would show a card pointing at a control that is not here,
+              and the tour would simply walk itself forward again. */}
+          {index > 0 &&
+            !step.clickToAdvance &&
+            stepMatchesRoute(TOUR_STEPS[index - 1], pathname) && (
+              <button type="button" onClick={() => setIndex(index - 1)} className="btn btn-sm">
+                Back
+              </button>
+            )}
           <button type="button" onClick={finish} className="btn btn-sm ml-auto !border-transparent text-faint">
             Skip tour
           </button>

@@ -89,10 +89,10 @@ function RunSurface() {
 
   const datasetById = Object.fromEntries((datasets ?? []).map((d) => [d.id, d]));
   const selected = datasetById[datasetId];
-  // Both lists have loaded and neither has anything behind it yet: this
-  // account has never run the engine.
-  const firstRun =
-    !tourDismissed && runs !== null && runs.length === 0 && datasets !== null && datasets.length > 0;
+  // Both lists have loaded and this account has never run the engine. The
+  // dataset list is deliberately not part of the test: a new account has no
+  // data at all, and having none is precisely what the tour starts by fixing.
+  const firstRun = !tourDismissed && runs !== null && runs.length === 0 && datasets !== null;
 
   async function closeTheBooks(event: React.FormEvent) {
     event.preventDefault();
@@ -136,9 +136,9 @@ function RunSurface() {
           <div className="min-w-0 flex-1 basis-80">
             <span className="legend legend-hi">First time here?</span>
             <p className="mt-2 max-w-[70ch] text-[14px] leading-relaxed text-muted">
-              Your account opens with a demo corpus of 400 records, 15% of them seeded difficulties,
-              shipped with an answer key the engine never sees. Take the tour and it will walk you
-              through closing the books on it, one control at a time.
+              Your account starts empty — nothing was generated on your behalf. Take the tour and it
+              will walk you through building a corpus of your own, seeded difficulties and an answer
+              key the engine never sees, then closing the books on it one control at a time.
             </p>
           </div>
           <div className="flex shrink-0 gap-2">

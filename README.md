@@ -54,7 +54,7 @@ Built for the **Razorpay AI Buildathon · Track 04: AI Finance Controller**.
 - **Impact readout** — payments closed without a human, time returned, rupees cleared, and what still needs someone.
 - 14-day cash position projected from unsettled payments.
 - Branded PDF report per run, and CSV export.
-- Guided tour for a first-time user.
+- Guided tour that builds a first-time user's corpus with them — Run to Data, seed and size, then back to the console to close the books on it. A new account starts empty; nothing is generated on anyone's behalf.
 
 **Operations**
 - Runs execute in a separate **arq worker**, never in the request handler.

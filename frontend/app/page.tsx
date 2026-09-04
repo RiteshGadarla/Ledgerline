@@ -15,26 +15,35 @@ const CHAIN = [
   { role: "Bank line", count: "118", detail: "credits on the statement", tied: null, broken: null },
 ];
 
-const PASSES = [
+/**
+ * The passes as the engine actually runs them, which is not four abreast: P1
+ * and P3 are the two linking passes `match()` wires, P2 is the recompute the
+ * verifier performs on every proposal whoever made it, and P4 is implemented
+ * and unit tested but not yet enabled. A landing page a reader can falsify by
+ * opening `pipeline.py` costs more than the fourth card is worth, so the card
+ * carries its own status instead.
+ */
+const PASSES: { id: string; title: string; body: string; status?: string }[] = [
   {
     id: "P1",
     title: "Bank → settlement",
-    body: "Ties a bank credit to a settlement on amount and UTR. No fuzz, no tolerance: the two either agree or they don't.",
+    body: "Ties a bank credit to a settlement on UTR, an exact amount and a date window. A credit that posted six weeks late is a break, not a match.",
   },
   {
     id: "P2",
     title: "Payout recompute",
-    body: "Rebuilds a settlement's payout from its own batch of payments, in integer paise. Float never touches an amount.",
+    body: "Rebuilds a settlement's payout from its own batch of payments, in integer paise, inside the verifier. Float never touches an amount.",
   },
   {
     id: "P3",
     title: "Invoice → payment",
-    body: "Links an invoice to a payment through an exact reference, so the chain runs end to end rather than in fragments.",
+    body: "Links an invoice to a payment on an exact reference, falling back to a unique amount in-window, so the chain runs end to end.",
   },
   {
     id: "P4",
     title: "Split payments",
-    body: "Solves a bounded subset-sum when one credit covers many invoices, the case that costs a finance team its afternoon.",
+    body: "A bounded subset-sum for the one credit that covers many invoices. Implemented and unit tested, but not wired into a run yet.",
+    status: "Not enabled",
   },
 ];
 
@@ -135,9 +144,9 @@ export default function LandingPage() {
 
               <p className="mt-6 max-w-[56ch] text-[clamp(0.9rem,1.1vw,1.03rem)] leading-[1.62] text-pretty text-muted">
                 Ledgerline walks every rupee from invoice to payment to settlement to the line on
-                your bank statement. Four deterministic passes do the matching, an independent
-                verifier re-checks the arithmetic, and anything that won&apos;t tie out arrives as a
-                typed exception with its evidence attached.
+                your bank statement. Two deterministic passes do the matching, an independent
+                verifier recomputes every amount in integer paise, and anything that won&apos;t tie
+                out arrives as a typed exception with its evidence attached.
               </p>
 
               <div className="mt-7 flex flex-wrap gap-2.5">
@@ -305,8 +314,15 @@ export default function LandingPage() {
                   key={pass.id}
                   className="border-l border-hairline px-[clamp(0.8125rem,1.5vw,1.5rem)] first:border-l-0 first:pl-0"
                 >
-                  <span className="mono text-[12.5px] font-semibold tracking-[0.1em] text-accent">
-                    {pass.id}
+                  <span className="flex items-baseline gap-2">
+                    <span className="mono text-[12.5px] font-semibold tracking-[0.1em] text-accent">
+                      {pass.id}
+                    </span>
+                    {pass.status && (
+                      <span className="mono text-[10.5px] uppercase tracking-[0.08em] text-faint">
+                        {pass.status}
+                      </span>
+                    )}
                   </span>
                   <h3 className="mt-3 text-[16.5px] font-semibold tracking-[-0.01em]">{pass.title}</h3>
                   <p className="mt-2.5 text-[14px] leading-relaxed text-muted">{pass.body}</p>

@@ -34,11 +34,49 @@ export const TOUR_STEPS: TourStep[] = [
     body: "Two places: Run closes the books, Data holds the files you close them against. Everything else is a view of one run.",
   },
   {
+    id: "to-data",
+    anchor: "rail-data",
+    route: "/run",
+    title: "Nothing to run yet",
+    body: "Your account opens empty — nothing was generated on your behalf. Click Data and we will make a corpus worth running.",
+    clickToAdvance: true,
+  },
+  {
+    id: "data-choices",
+    anchor: "data-choices",
+    route: "/data",
+    title: "What a dataset is",
+    body: "Four files — invoices raised, payments captured, payouts settled, credits that landed. Bring your own as CSV, XLSX or PDF, or generate a corpus with a known answer key.",
+  },
+  {
+    id: "data-generate",
+    anchor: "data-generate",
+    route: "/data",
+    title: "Generate one",
+    body: "Take the generated route first: it is the only kind that ships with the truth, so precision and recall are measured rather than asserted. Click here.",
+    clickToAdvance: true,
+  },
+  {
+    id: "generate-form",
+    anchor: "data-generate-form",
+    route: "/data",
+    title: "Seed and size are yours",
+    body: "The seed fixes the books: the same seed and size generate the same records, which is what lets one run's output hash be checked against another. Size sets how many records carry each of the 11 difficulty classes.",
+  },
+  {
+    id: "generate-submit",
+    anchor: "data-generate-submit",
+    route: "/data",
+    title: "Click here to build it",
+    body: "It plants the difficulties, writes an answer key the engine never sees, and hands you back to the console with the corpus selected.",
+    clickToAdvance: true,
+  },
+  {
     id: "dataset",
     anchor: "run-dataset",
     route: "/run",
-    title: "Your demo corpus",
-    body: "Your account opens with 400 generated records — invoices, payments, settlements and bank lines. 15% carry a seeded difficulty, and it ships with an answer key the engine never sees.",
+    title: "The corpus you just made",
+    body: "Selected and ready. The chips beside it say which of the four roles it carries; all four is what makes a full chain walkable.",
   },
   {
     id: "mutations",
@@ -87,8 +125,8 @@ export const TOUR_STEPS: TourStep[] = [
     id: "data",
     anchor: "rail-data",
     route: "/runs/",
-    title: "Bring your own books",
-    body: "Upload CSV, XLSX or PDF per role. Column names are resolved against a table first and a model is asked only about the ones left over.",
+    title: "Now bring your own books",
+    body: "The same surface takes CSV, XLSX or PDF per role. Column names are resolved against a table first and a model is asked only about the ones left over. Scored runs need an answer key, so real books report matches and exceptions without accuracy.",
   },
 ];
 
@@ -119,6 +157,25 @@ export function clearTourDone(): void {
   } catch {
     /* as above */
   }
+}
+
+/**
+ * Whether the tour is running right now.
+ *
+ * A module flag rather than context: exactly one Tour is mounted, and the one
+ * caller outside it is the Data surface, which has to know whether a freshly
+ * generated dataset should stay on screen for inspection (the normal case) or
+ * hand the user back to the console to run it (the tour, which promised
+ * exactly that on the previous step).
+ */
+let running = false;
+
+export function setTourRunning(value: boolean): void {
+  running = value;
+}
+
+export function tourRunning(): boolean {
+  return running;
 }
 
 export function stepMatchesRoute(step: TourStep, pathname: string): boolean {

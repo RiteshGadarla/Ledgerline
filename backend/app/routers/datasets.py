@@ -8,8 +8,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.corpus import build_generated_dataset
 from app.db import get_db
-from app.demo import build_generated_dataset
 from app.deps import get_current_user
 from app.errors import NotFoundError, ValidationFailedError
 from app.ingest_upload import parse_upload, require_role

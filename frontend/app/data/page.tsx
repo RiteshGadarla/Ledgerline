@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { EmptyState, Loading, Modal, PanelHead, Surface } from "@/components/Surface";
 import { DIFFICULTY_CLASSES, HARD_SHARE, formatClassName } from "@/lib/difficulty";
@@ -9,6 +10,7 @@ import { UserBadge } from "@/components/UserBadge";
 import { api } from "@/lib/api/client";
 import type { components } from "@/lib/api/client";
 import { formatTimestamp } from "@/lib/time";
+import { tourRunning } from "@/lib/tour";
 
 type DatasetOut = components["schemas"]["DatasetOut"];
 type DatasetFileOut = components["schemas"]["DatasetFileOut"];
@@ -25,9 +27,9 @@ const ROLES: { value: string; label: string; hint: string }[] = [
 
 const RECORDS_PAGE_SIZE = 20;
 
-const DEFAULT_SEED = "42";
+const DEFAULT_SEED = "32";
 // Mirrors DEFAULT_GENERATED_SIZE in backend/app/routers/datasets.py.
-const DEFAULT_GENERATED_SIZE = 400;
+const DEFAULT_GENERATED_SIZE = 300;
 
 function isNameTaken(existingNames: string[], name: string): boolean {
   const candidate = name.trim().toLowerCase();
@@ -56,6 +58,7 @@ async function postForm<T>(
 }
 
 function DataSurface() {
+  const router = useRouter();
   const [datasets, setDatasets] = useState<DatasetOut[] | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [creating, setCreating] = useState<"generate" | "upload" | null>(null);
@@ -111,8 +114,9 @@ function DataSurface() {
         close the books against.
       </p>
 
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-2" data-tour="data-choices">
         <ChoiceCard
+          tour="data-generate"
           title="Generate a synthetic dataset"
           body="A seeded corpus with a known truth file, so precision and recall are meaningful. The fastest way to see a full run end to end."
           cta="Generate"
@@ -132,6 +136,14 @@ function DataSurface() {
           <GenerateForm
             existingNames={existingNames}
             onDone={async (dataset) => {
+              // Mid-tour the previous step promised the console back with this
+              // corpus selected, so it goes there rather than opening the
+              // dataset for inspection -- which is the right landing spot for
+              // someone who came to this surface on their own.
+              if (tourRunning()) {
+                router.push(`/run?dataset=${dataset.id}`);
+                return;
+              }
               await refreshDatasets();
               setSelectedId(dataset.id);
               setCreating(null);
@@ -325,12 +337,15 @@ function ChoiceCard({
   cta,
   onClick,
   primary = false,
+  tour,
 }: {
   title: string;
   body: string;
   cta: string;
   onClick: () => void;
   primary?: boolean;
+  /** `data-tour` anchor for the CTA, when a tour step points at it. */
+  tour?: string;
 }) {
   return (
     <div className="panel flex flex-col gap-3 p-4">
@@ -338,6 +353,7 @@ function ChoiceCard({
       <p className="flex-1 text-[14px] leading-relaxed text-muted">{body}</p>
       <button
         type="button"
+        data-tour={tour}
         onClick={onClick}
         className={"btn self-start " + (primary ? "btn-primary" : "")}
       >
@@ -504,7 +520,7 @@ function GenerateForm({
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-5">
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-3" data-tour="data-generate-form">
         <Field label="Name">
           <input
             className="field"
@@ -542,6 +558,7 @@ function GenerateForm({
       <div className="flex gap-2.5">
         <button
           type="submit"
+          data-tour="data-generate-submit"
           disabled={busy || !name.trim() || taken || seedBlank}
           className="btn btn-primary"
         >

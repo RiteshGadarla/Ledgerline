@@ -1,11 +1,8 @@
-import logging
-
 from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db import get_db
-from app.demo import seed_demo_dataset
 from app.deps import get_current_user
 from app.errors import ProblemDetailError, ValidationFailedError
 from app.ratelimit import IpRateLimiter
@@ -23,7 +20,6 @@ from db.tenancy import (
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
-logger = logging.getLogger(__name__)
 
 REGISTER_LOGIN_LIMIT = 10
 REGISTER_LOGIN_WINDOW_SECONDS = 60.0
@@ -83,7 +79,13 @@ async def _rate_limit(request: Request, scope: str) -> None:
 async def register(
     credentials: Credentials, request: Request, response: Response, db: AsyncSession = Depends(get_db)
 ) -> UserOut:
-    """Creates a user and immediately logs them in, setting the session cookie."""
+    """Creates a user and immediately logs them in, setting the session cookie.
+
+    No data is created alongside the account. A corpus the user did not choose
+    is a corpus they cannot account for, and the console's tour walks them
+    through generating their own -- which is also the moment the difficulty
+    classes and the answer key are worth explaining.
+    """
     await _rate_limit(request, "register")
     _validate_credentials(credentials)
 
@@ -91,16 +93,6 @@ async def register(
         user = await create_user(db, credentials.username, hash_password(credentials.password))
     except UsernameTaken as exc:
         raise UsernameTakenError(f"username {credentials.username!r} is already taken") from exc
-
-    # A demo corpus, so the account opens on something the engine can be run
-    # against rather than on an empty console. Seeding failures are swallowed
-    # on purpose: an account that exists and can be signed into is the thing
-    # registration promised, and losing it over a sample dataset would be a
-    # poor trade. The user can generate one themselves from the Data surface.
-    try:
-        await seed_demo_dataset(db, user.id)
-    except Exception:
-        logger.exception("register: could not seed the demo dataset for user %s", user.id)
 
     session = await create_session(db, user.id)
     _set_session_cookie(response, session.id, DEFAULT_SESSION_TTL_SECONDS)
