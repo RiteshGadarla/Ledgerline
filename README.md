@@ -1,14 +1,67 @@
 # Ledgerline
 
 **Reconciliation that shows its work.** Every rupee walked from invoice to
-payment to settlement to the line on a bank statement, with every match backed
-by evidence and everything that will not tie out reported as a typed exception.
+payment to settlement to the line on a bank statement — every match backed by
+evidence, and everything that will not tie out reported as a typed exception.
 
-Built for the **Razorpay AI Buildathon, Track 04: AI Finance Controller**. The
-brief asks for an agent that closes one finance-ops loop over a 50+ record
-batch, reporting its match rate and the exceptions it could not resolve, judged
-on throughput, measured accuracy and an honest exception list rather than one
-cherry-picked match.
+Built for the **Razorpay AI Buildathon · Track 04: AI Finance Controller**.
+
+| | |
+|---|---|
+| **Precision** | 1.000 across 300 runs / 267,172 records — 0 false matches |
+| **Scale tested** | 30 held-out seeds × 3 sizes × 7 sabotage modes |
+| **Engine** | Pure Python, deterministic, integer paise — no floats, no clock, no I/O |
+| **The model** | Proposes only. A verifier decides. It has never written a match |
+| **Tests** | 445 backend tests · `ruff` · `mypy` · 3 import-linter contracts |
+
+---
+
+## Features
+
+**Matching**
+- Two deterministic linking passes plus a verifier, over the full chain: invoice → payment → settlement batch → bank credit.
+- Every sum recomputed in **integer paise**. No floating point touches money, anywhere.
+- Payout re-derived from its own batch — gross, less fees, less tax, less refunds, plus adjustments — and compared to what the bank actually credited.
+- Date-window checks, so a credit that posted six weeks late is a break rather than a silent tie.
+
+**Honesty**
+- **13 typed exception codes**, each carrying the check it failed and the evidence behind it.
+- Nothing is ever matched at "lower confidence" — a proposal that will not tie out becomes an exception, not a guess.
+- Accuracy figures are hidden when there is no answer key to score against, rather than shown as zeroes.
+- Degrades loudly: if the model is unreachable, the run still completes, reports `assist_rate = 0`, and flags itself.
+
+**The AI layer**
+- Model proposes `{links, evidence_spans, confidence}` — never an amount, never a match.
+- Evidence spans must be **verbatim substrings** of narration the run actually showed it; ungrounded quotes are rejected before verification even runs.
+- A rejected proposal surfaces as `LLM_PROPOSAL_FAILED_VERIFY` — visible, not swallowed.
+- Column mapping resolves known headers deterministically and asks the model **only** about genuinely ambiguous ones, with many-shot worked examples.
+
+**Lyra, the Q&A agent**
+- **11 tools** over the run's stored result: metrics, chains, exceptions, records, forecast, dataset, prior decisions, cross-run comparison and free-text search.
+- Multi-turn — follow-ups resolve against what was just said.
+- Shows each lookup as it happens, then **cites the record ids it read**, collected from tool results so an invented id gets no citation.
+- Numbers are checked against tool payloads before you see them; an ungrounded answer is replaced wholesale.
+- Tenancy is re-verified per tool call at the repository layer, whatever run id the model asks for.
+
+**Measurement**
+- Synthetic corpora ship with a **ground-truth answer key** the engine never sees, so precision and recall are measured rather than asserted.
+- **11 difficulty classes** — fee/GST deltas, refunds and chargebacks in-batch, splits, duplicates, missing UTRs, payer mismatches, unrelated credits, genuinely unmatchable records — each scaling with corpus size.
+- **7 sabotage modes** switchable from the console, applied to a copy with the truth corrupted in lockstep.
+- Every run reproducible from its seed, with an output hash.
+
+**Product**
+- Six surfaces: Run, Data, Scoreboard, Chain, Exceptions, Cash position.
+- **Impact readout** — payments closed without a human, time returned, rupees cleared, and what still needs someone.
+- 14-day cash position projected from unsettled payments.
+- Branded PDF report per run, and CSV export.
+- Guided tour for a first-time user.
+
+**Operations**
+- Runs execute in a separate **arq worker**, never in the request handler.
+- Live run progress over SSE.
+- **Multi-key Gemini pool**: quota is charged per key, so three keys are three times the ceiling — not one ceiling reached three times as fast.
+- Governor enforces per-key RPM/RPD and per-user daily quota in Redis; a spent key is stepped over, not failed on.
+- Response cache keyed by model + prompt + schema version, storing what each answer cost.
 
 ---
 
@@ -17,18 +70,9 @@ cherry-picked match.
 **300 runs. 267,172 records. Zero false matches.**
 
 Measured on 30 held-out seeds the engine was never developed against
-(5001-5030, asserted disjoint from the golden seeds in `scripts/eval.py`), at
-three corpus sizes, then repeated once per corruption the adversarial mutation
-engine can apply. Reproduce the whole table with
-`cd backend && uv run python -m scripts.benchmark`.
-
-Fifteen percent of every generated corpus is a seeded difficulty rather than a
-clean tie-out, spread across ten classes -- fee and GST deltas, refunds and
-chargebacks inside a batch, split payments, dates outside the window, duplicate
-captures, narrations with no UTR, payer-name mismatches, unrelated credits and
-genuinely unmatchable records. Each class scales with the batch, so a class's
-recall is computed from a sample rather than from the single record it used to
-get, where the figure could only ever read 0% or 100%.
+(5001–5030, asserted disjoint from the golden seeds in `scripts/eval.py`), at
+three corpus sizes, then repeated once per corruption the mutation engine can
+apply. Reproduce with `cd backend && uv run python -m scripts.benchmark`.
 
 | Corpus                             | Runs | Records | Precision | Recall | False matches | Auto | Exceptions | Throughput |
 |------------------------------------|-----:|--------:|----------:|-------:|--------------:|-----:|-----------:|-----------:|
@@ -43,45 +87,31 @@ get, where the figure could only ever read 0% or 100%.
 | corrupted · scramble_narration     |   30 |   9,545 |     1.000 |  0.671 |             0 | 0.684 |      102.4 | 393,623/s |
 | corrupted · split_payment          |   30 |   9,575 |     1.000 |  0.678 |             0 | 0.680 |      103.0 | 379,432/s |
 
-Read the two halves together, because the second one is the point.
+Read the two halves together — the second one is the point:
 
-**Precision is 1.000 in every row.** Nothing was ever tied out that the truth
-file says does not belong together. That is the verifier doing its job: every
-proposed match, whoever proposed it, is recomputed in integer paise before it
-is written, and a proposal that fails becomes an exception rather than a match.
-
-**Recall falls under sabotage, and that is the honest outcome.** Corrupting a
-date, an amount or a narration genuinely destroys the evidence a match needs.
-The engine answers by filing exceptions -- about 76 on a clean 150-record
-corpus, about 100 once records have been corrupted -- rather than by guessing.
-An engine whose recall held steady under sabotage would be inventing matches,
-and its precision would say so.
-
-**Recall is flat across corpus sizes** (0.781 at 150 records, 0.776 at 2,400)
-because the difficulty mix is held constant by construction: 15% of every
-corpus is a seeded hard case, spread across ten classes that scale with the
-batch. A bigger run is therefore more evidence for the same claim rather than
-an easier corpus flattering the number.
-
-The throughput column times `engine.match()` alone -- no ingestion, no LLM
-triage, no database -- because a throughput figure that quietly includes or
-excludes the slow parts is advertising rather than measurement. End-to-end wall
-clock for a real run, persistence and assisted triage included, is reported per
-run on the Scoreboard.
+- **Precision is 1.000 in every row.** Nothing was tied out that the truth file says does not belong together. That is the verifier: every proposal, whoever made it, recomputed in integer paise before it is written.
+- **Recall falls under sabotage, and that is the honest outcome.** Corrupting a date, an amount or a narration genuinely destroys the evidence a match needs. The engine answers by filing exceptions — ~76 on a clean 150-record corpus, ~100 once corrupted — rather than guessing. An engine whose recall held steady under sabotage would be inventing matches, and its precision would say so.
+- **Recall is flat across sizes** (0.781 at 150 records, 0.776 at 2,400) because difficulty is held constant by construction at 15%. A bigger run is more evidence for the same claim, not an easier corpus flattering the number.
+- **Throughput times `engine.match()` alone** — no ingestion, no LLM, no database. A throughput figure that quietly includes or excludes the slow parts is advertising, not measurement. End-to-end wall clock is reported per run on the Scoreboard.
 
 ### On real files, not just generated ones
 
-A four-file upload of genuine exports -- 55 invoices, 56 payments, 53
-settlements, 60 bank lines -- reconciles to **50 matched groups against 53
-settlements, and 26 typed exceptions**: ten unidentified credits, eight
-settlements with no bank line, five payments with no invoice, two unexplained
-amount mismatches and one duplicate candidate. That list is the deliverable.
-A reconciliation that reports no exceptions on real books is not finished, it
-is lying.
+A four-file upload of genuine exports — 55 invoices, 56 payments, 53
+settlements, 60 bank lines — reconciles to **50 matched groups against 53
+settlements, and 26 typed exceptions**:
+
+- 10 unidentified credits
+- 8 settlements with no bank line
+- 5 payments with no invoice
+- 2 unexplained amount mismatches
+- 1 duplicate candidate
+
+That list is the deliverable. A reconciliation that reports no exceptions on
+real books is not finished — it is lying.
 
 ---
 
-## What it does
+## How it works
 
 One finance-ops loop, closed end to end:
 
@@ -89,97 +119,108 @@ One finance-ops loop, closed end to end:
 INVOICE (ledger) -> PAYMENT (gateway) -> SETTLEMENT BATCH (net payout, UTR) -> BANK CREDIT (statement line)
 ```
 
-Four deterministic passes do the matching: bank credit to settlement on UTR and
-exact amount; a payout recomputed from its own batch of payments in integer
-paise; invoice to payment on an exact reference; and a bounded subset-sum for
-the case where one credit covers many invoices. Whatever will not close arrives
-as a typed exception carrying the check it failed and the evidence behind it.
-Unsettled payments are projected forward into a fourteen-day cash position, and
-a Q&A agent answers questions against the same verified data.
-
-Two data modes:
-
-- **Demo** -- a seeded synthetic corpus shipped with a ground-truth answer key,
-  so precision and recall are measured rather than asserted. Seven typed
-  corruptions can be switched on from the console, each applied to a copy of
-  the corpus with the truth corrupted in lockstep, so the numbers stay
-  measurable after the sabotage. A run's URL reproduces exactly what was tested.
-- **Your data** -- upload CSV, XLSX or PDF. Column names are resolved against a
-  table of known headers first and a model is asked only about the ones left
-  over, then the same engine runs.
-
 ### The rule the whole system is built around
 
-**The model never does arithmetic and never writes a match.** It proposes
-`{links, evidence_spans, confidence}`; a deterministic verifier recomputes the
-tie-out in integer paise and decides. A failed proposal surfaces as
-`LLM_PROPOSAL_FAILED_VERIFY`, never as a silent match. If the model is rate
-limited or returns something malformed, the run still finishes: it reports an
-assist rate of zero, flags itself degraded, and files every affected item as an
-exception.
+> **The model never does arithmetic and never writes a match.**
 
-The same discipline now governs schema mapping. Known column names are resolved
-deterministically, the model is asked only about genuinely ambiguous headers,
-and any answer of its that collides with an already-resolved field is dropped
-rather than merged. Propose freely; a deterministic check decides.
+It proposes `{links, evidence_spans, confidence}`; a deterministic verifier
+recomputes the tie-out in integer paise and decides. The same discipline governs
+schema mapping: known columns resolve deterministically, the model is asked only
+about ambiguous headers, and any answer colliding with an already-resolved field
+is dropped rather than merged.
 
----
+**Propose freely; a deterministic check decides.**
 
-## Architecture
+### The reconciliation path
+
+Where a record goes, and who is allowed to say it matched:
+
+```mermaid
+flowchart TD
+    IN(["Batch · invoices · payments · settlements · bank lines"])
+    IN --> P1
+
+    P1{"P1 · link<br/>bank credit to settlement<br/>UTR + exact amount + date window"}
+    P1 -->|"unique hit"| P3
+    P1 -->|"no credit / several candidates"| EX
+
+    P3["P3 · link<br/>invoice to payment<br/>exact ref, else unique amount + window"]
+    P3 --> PROP["Proposal<br/>invoices · payments · settlement · bank line"]
+    PROP --> V
+
+    TRIAGE["Assisted triage · residue only<br/>model proposes links + evidence spans"]
+    TRIAGE --> V
+
+    V{"THE VERIFIER<br/>the only path that writes a match"}
+    V -->|"ties out exactly"| OK(["Matched group · auto or assisted"])
+    V -->|"residual, or evidence fails"| EX
+
+    EX(["Typed exception · the check it failed + its evidence"])
+    EX -.->|"amount-equal candidate exists"| TRIAGE
+
+    classDef gate fill:#0b3d3a,stroke:#00a294,stroke-width:2px,color:#ffffff
+    classDef good fill:#e3f2ea,stroke:#146a47,color:#0b2e1e
+    classDef bad fill:#fdecec,stroke:#b3261e,color:#5c1512
+    class V gate
+    class OK good
+    class EX bad
+```
+
+- **P1** links a bank credit to a settlement on UTR plus an exact amount — and requires the credit to have landed near the settlement date. UTR and an exact amount are strong evidence, but not a licence to silently tie a credit that posted six weeks late.
+- **P3** links an invoice to a payment on an exact reference token, falling back to a unique amount inside a date window.
+- **The verifier** is the only code path that creates a match. It recomputes the payout from the settlement's own batch — gross, less fees, less tax, less refunds, plus adjustments (the P2 algebra) — in integer paise, requires every evidence span to be a verbatim substring of narration the run actually showed, and refuses any record already claimed by another group. Both the deterministic passes and the model go through it; there is no second path.
+
+`p4_subset_sum` (one credit covering many invoices) is implemented and unit
+tested in `engine/passes.py`, but is **not currently wired into `match()`**.
+
+### System architecture
 
 ```mermaid
 flowchart LR
-    subgraph client["Browser · one origin"]
-        UI["Next.js<br/>seven surfaces"]
-        PROXY["same-origin<br/>API proxy"]
-    end
+    UI["Next.js<br/>six surfaces"] --> PROXY["same-origin<br/>API proxy"]
 
-    subgraph apiproc["API · FastAPI"]
-        ROUTES["routers<br/>auth · tenancy"]
+    subgraph api["API process · FastAPI"]
+        ROUTES["routers<br/>auth · tenancy · SSE"]
         INGEST["ingest/<br/>CSV · XLSX · PDF"]
-        STREAM["run stream<br/>SSE"]
     end
 
-    subgraph workerproc["Worker · arq"]
+    subgraph worker["Worker process · arq"]
         PIPE["run_pipeline<br/>five stages"]
-        ENGINE["engine/<br/>four passes, pure"]
+        ENGINE["engine/<br/>pure · deterministic"]
         VERIFY["verifier<br/>integer paise"]
-        METRICS["metrics +<br/>exception list"]
     end
 
-    subgraph stores["Stores"]
-        PG[("PostgreSQL")]
-        REDIS[("Redis<br/>queue · pub-sub")]
-    end
+    REDIS[("Redis<br/>queue · pub-sub · cache")]
+    PG[("PostgreSQL<br/>runs · datasets · sessions")]
+    GEMINI["Gemini<br/>key pool · governed · cached"]
 
-    GEMINI["Gemini<br/>governed, cached"]
-
-    UI --> PROXY
-    PROXY -->|"HTTP"| ROUTES
+    PROXY --> ROUTES
     ROUTES --> INGEST
-    INGEST -->|"map columns"| GEMINI
-    INGEST -->|"records"| PG
-    ROUTES --> PG
-    ROUTES -->|"enqueue"| REDIS
+    ROUTES <-->|"enqueue · pub-sub"| REDIS
     REDIS -->|"job"| PIPE
-    PIPE --> ENGINE --> VERIFY --> METRICS -->|"result"| PG
-    PIPE -->|"triage leftovers"| GEMINI
-    GEMINI -.->|"proposals only,<br/>never arithmetic"| VERIFY
-    PIPE -->|"publish state"| REDIS
-    REDIS -->|"pub-sub"| STREAM
-    STREAM -->|"SSE"| UI
+    PIPE --> ENGINE --> VERIFY -->|"result"| PG
+    ROUTES --> PG
+    INGEST --> PG
+    PIPE -->|"progress"| REDIS
+    ROUTES -->|"SSE"| UI
+
+    INGEST -->|"ambiguous columns"| GEMINI
+    PIPE -->|"triage residue"| GEMINI
+    GEMINI -.->|"proposals only<br/>never arithmetic"| VERIFY
+
+    classDef gate fill:#0b3d3a,stroke:#00a294,stroke-width:2px,color:#ffffff
+    classDef ext fill:#fff6e5,stroke:#b7791f,color:#5c3d0a
+    class VERIFY gate
+    class GEMINI ext
 ```
 
-- **`backend/engine` is pure Python** -- no I/O, no clock, no randomness, no
-  database. A deterministic function from corpus to result, which is what makes
-  a run reproducible from its seed and hash.
-- **Runs execute in a separate arq worker**, never in the request handler, so
-  reconciliation cannot block the API event loop.
-- **The frontend is presentation only.** No matching, no money math, no metric
-  computed client-side; everything rendered arrives already computed. An ESLint
-  rule enforces it.
-- **Cross-origin cookies are avoided entirely**: the Next.js app proxies the API
-  through its own origin, so the browser only ever talks to one domain.
+### Design decisions
+
+- **`backend/engine` is pure Python** — no I/O, no clock, no randomness, no database. A deterministic function from corpus to result, which is what makes a run reproducible from its seed and hash.
+- **Runs execute in a separate arq worker**, never in the request handler, so reconciliation cannot block the API event loop.
+- **The frontend is presentation only.** No matching, no money math, no metric computed client-side. An ESLint rule enforces it.
+- **Cross-origin cookies are avoided entirely** — the Next.js app proxies the API through its own origin, so the browser only ever talks to one domain.
+- **Impact figures are derived at render time, never stored.** The per-match time assumption is a reading of a run, not a fact about it; baking it in would make every past run silently change meaning the day it is revised.
 
 ### Stack
 
@@ -194,46 +235,6 @@ flowchart LR
 | Auth | argon2-cffi (argon2id), server-side sessions in Postgres |
 | Frontend | Next.js App Router, TypeScript strict |
 | API client | `openapi-typescript`, generated from the live OpenAPI schema |
-
----
-
-## What broke, and how it got out
-
-Three failures worth recording, because all three were invisible until real
-files went through.
-
-**A real gateway export validated 0 of 56 rows.** The file was fine and the
-mapping was right: `payment_date` carried `2026-08-04 00:00`, and the date
-parser knew exactly three shapes, each anchored end to end, so a trailing time
-of day failed every one. The other three files loaded because their date
-columns carry no time -- the gateway file was the only one precise about when a
-capture happened, and the precision is what killed it. The parser now drops a
-trailing wall-clock time before matching, and reads a real ISO instant through
-`fromisoformat`, converting an offset to IST before taking the date so a
-21:00 UTC capture lands on the following day, which is the day its settlement
-window belongs to.
-
-**Then it reported nothing.** The API returned a reason for all 56 rejected
-rows and the console dropped them, showing "0/56 rows valid" and "nothing has
-been parsed" about 56 rows it had just parsed. The engine had an honest
-exception list; ingestion did not. Rejections now render grouped by cause with
-row numbers, and an upload that stores nothing keeps its panel open on the
-reason instead of closing onto an empty table.
-
-**Then the corpus reconciled nothing at all** -- 224 records, 0 matches. Two
-causes. The narration extractor strips the `UTR` label and yields `598806645`
-while a settlement export writes `UTR598806645` in its own column, and the two
-were compared as raw strings; a generated corpus never noticed, because the
-generator emits the bare token and puts the label in the narration template.
-And schema mapping had been left entirely to the model, which got three of four
-files wrong: a ledger's `invoice_id` onto `number`, a settlement's
-`gross_amount` onto `payout` when the bank credits the net, and a bank
-statement's `amount` column left unmapped, zeroing every credit in the file.
-Both are fixed above; the same files now tie out 50 groups.
-
-Every one of these was a no-op on the generated corpus -- the benchmark numbers
-are unchanged to four decimal places -- which is exactly why a synthetic answer
-key is not sufficient evidence on its own.
 
 ---
 
@@ -255,14 +256,15 @@ make gen-api     # regenerate frontend/lib/api/schema.d.ts from the live backend
 make frontend    # Next.js dev server        (localhost:3000)
 ```
 
-Without `DATABASE_URL`/`REDIS_URL`, the backend still starts and serves
-`/health`; any route needing Postgres or Redis returns `503`.
+- Without `DATABASE_URL` / `REDIS_URL`, the backend still starts and serves `/health`; any route needing Postgres or Redis returns `503`.
+- `GEMINI_API_KEY` takes one key or a comma-separated list of any length.
+- With no key at all, every LLM path degrades honestly rather than failing.
 
 ### Repo layout
 
 ```
 backend/    FastAPI app, engine, ingestion, LLM gateway, workers, tests
-frontend/   Next.js app: Run, Scoreboard, Chain, Exceptions, Data, Cash position, Method
+frontend/   Next.js app: Run, Data, Scoreboard, Chain, Exceptions, Cash position
 docker/     docker-compose for local Postgres + Redis
 fixtures/   golden metrics, pinned per seed
 Makefile    install / run / test
@@ -271,15 +273,3 @@ Makefile    install / run / test
 See [`backend/README.md`](backend/README.md) and
 [`frontend/README.md`](frontend/README.md) for environment variables and the
 validation commands (`ruff`, `mypy`, `pytest`, `lint-imports`).
-
----
-
-## Status, honestly
-
-Runs work end to end against both a generated corpus and an uploaded dataset.
-373 backend tests pass; `ruff`, `mypy` and three import-linter contracts are
-clean.
-
-Outstanding: no CI, no frontend test suite (Playwright/vitest/axe), no
-Dockerfiles or full-topology compose, and `/health` is a liveness stub that
-checks no dependency.

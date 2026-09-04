@@ -1,5 +1,6 @@
 import json
 
+import pytest
 import redis.asyncio as redis
 from pydantic import BaseModel
 
@@ -108,7 +109,7 @@ def test_the_per_user_daily_ceiling_widens_with_the_key_pool() -> None:
     assert user_daily_quota(0) == one, "no keys configured is still one slot's worth, not zero"
 
 
-def test_an_explicit_ceiling_is_honoured_as_an_absolute_figure(monkeypatch) -> None:
+def test_an_explicit_ceiling_is_honoured_as_an_absolute_figure(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("LLM_USER_DAILY_QUOTA", "40")
     import importlib
 

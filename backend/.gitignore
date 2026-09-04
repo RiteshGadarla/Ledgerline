@@ -5,4 +5,9 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .hypothesis/
+
+# Local environment and secrets. The example is the one env file that is
+# meant to be committed, so it has to be negated after the .env.* sweep.
 .env
+.env.*
+!.env.example

@@ -204,7 +204,7 @@ async def test_get_decisions_returns_what_a_human_already_settled(
 ) -> None:
     user_id, runs = await _user_with_runs(db_session_factory, "tools-decisions")
     async with db_session_factory() as db:
-        await record_exception_decision(db, runs[0], user_id, "EXC-1", "approve", note="cleared with the bank")
+        await record_exception_decision(db, runs[0], user_id, "EXC-1", "approved", note="cleared with the bank")
     async with db_session_factory() as db:
         result = await call_tool("get_decisions", {"run_id": runs[0]}, db, user_id)
 
