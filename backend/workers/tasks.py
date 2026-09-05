@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from datetime import UTC, datetime
@@ -73,6 +74,21 @@ async def _load_dataset_corpus(db: AsyncSession, dataset_id: str, user_id: str) 
     return corpus, truth
 
 
+async def _record_failure(session_factory: Any, redis_client: Any, run_id: str, error: str) -> None:
+    """Put the run into its terminal failed state and announce it.
+
+    Best-effort on purpose: if Postgres or Redis is the thing that broke, the
+    attempt to record the failure must not raise over the top of the original
+    error and lose it.
+    """
+    try:
+        async with session_factory() as db:
+            await fail_run(db, run_id, error)
+        await _emit(redis_client, run_id, {"state": "failed", "error": error})
+    except Exception:
+        logger.exception("run_reconciliation: could not record failure for run %s", run_id)
+
+
 async def run_reconciliation(ctx: dict[str, Any], run_id: str, user_id: str) -> None:
     """The arq job body: queued -> normalising -> matching -> triaging ->
     explaining -> scoring -> complete|failed. State is persisted to Postgres
@@ -99,47 +115,56 @@ async def run_reconciliation(ctx: dict[str, Any], run_id: str, user_id: str) -> 
         logger.warning("run_reconciliation: run %s not found for user %s", run_id, user_id)
         return
 
-    corpus: Corpus
-    truth: Truth | None
-    if run.source == "demo":
-        corpus, truth = generate_corpus(run.seed or DEFAULT_DEMO_SEED, run.size or DEFAULT_DEMO_SIZE)
-    else:
-        async with session_factory() as db:
-            loaded = await _load_dataset_corpus(db, cast(str, run.dataset_id), user_id)
-        if loaded is None:
-            error = f"dataset {run.dataset_id!r} not found or not ready"
-            async with session_factory() as db:
-                await fail_run(db, run_id, error)
-            await _emit(redis_client, run_id, {"state": "failed", "error": error})
-            return
-        corpus, truth = loaded
-
-    # Mutations are applied after the corpus is assembled and before anything
-    # reads it, so the engine sees only the corrupted books -- it is never told
-    # that a corruption happened, which is the whole point of the exercise.
-    # The run row carries the normalised spec list, so replaying this run row
-    # reproduces this exact corruption rather than a fresh random one.
-    if run.mutations:
-        specs = []
-        for raw in run.mutations:
-            parsed = parse_mutation(raw)
-            if isinstance(parsed, Ok):
-                specs.append(parsed.value)
-        corpus, truth = apply_mutations(corpus, truth, specs, seed=run.seed or 0)
-
+    # Everything below is guarded. Only run_pipeline used to be, which left
+    # three ways for a run to stall mid-flight with nothing working on it:
+    # generating the corpus, applying a mutation spec, and writing the result
+    # back. A run that never reaches a terminal state streams forever in the
+    # console, so any exit from here has to land on complete or failed.
     try:
+        corpus: Corpus
+        truth: Truth | None
+        if run.source == "demo":
+            corpus, truth = generate_corpus(run.seed or DEFAULT_DEMO_SEED, run.size or DEFAULT_DEMO_SIZE)
+        else:
+            async with session_factory() as db:
+                loaded = await _load_dataset_corpus(db, cast(str, run.dataset_id), user_id)
+            if loaded is None:
+                await _record_failure(
+                    session_factory, redis_client, run_id, f"dataset {run.dataset_id!r} not found or not ready"
+                )
+                return
+            corpus, truth = loaded
+
+        # Mutations are applied after the corpus is assembled and before anything
+        # reads it, so the engine sees only the corrupted books -- it is never told
+        # that a corruption happened, which is the whole point of the exercise.
+        # The run row carries the normalised spec list, so replaying this run row
+        # reproduces this exact corruption rather than a fresh random one.
+        if run.mutations:
+            specs = []
+            for raw in run.mutations:
+                parsed = parse_mutation(raw)
+                if isinstance(parsed, Ok):
+                    specs.append(parsed.value)
+            corpus, truth = apply_mutations(corpus, truth, specs, seed=run.seed or 0)
+
         gateway = gateway_factory(user_id)
         outcome = await run_pipeline(corpus, truth, gateway, user_id, publish_state)
+
+        result_json = serialize_match_result(outcome.result)
+        metrics_json = outcome.metrics.model_dump_json()
+        forecast_json = build_forecast(corpus, outcome.result).model_dump_json()
+        async with session_factory() as db:
+            await complete_run(db, run_id, result_json, metrics_json, forecast_json)
+        await _emit(redis_client, run_id, {"state": "complete"})
+    except asyncio.CancelledError:
+        # job_timeout expiring and the worker being told to shut down both
+        # cancel this task, and CancelledError is a BaseException -- so the
+        # handler below never saw it and the row stayed mid-flight. Record the
+        # terminal state, then let the cancellation carry on propagating.
+        logger.warning("run_reconciliation: run %s was cancelled", run_id)
+        await _record_failure(session_factory, redis_client, run_id, "run cancelled: timed out or the worker restarted")
+        raise
     except Exception as exc:  # an engine/pipeline error must fail the run, never present partial results
         logger.exception("run_reconciliation: run %s failed", run_id)
-        async with session_factory() as db:
-            await fail_run(db, run_id, str(exc))
-        await _emit(redis_client, run_id, {"state": "failed", "error": str(exc)})
-        return
-
-    result_json = serialize_match_result(outcome.result)
-    metrics_json = outcome.metrics.model_dump_json()
-    forecast_json = build_forecast(corpus, outcome.result).model_dump_json()
-    async with session_factory() as db:
-        await complete_run(db, run_id, result_json, metrics_json, forecast_json)
-    await _emit(redis_client, run_id, {"state": "complete"})
+        await _record_failure(session_factory, redis_client, run_id, str(exc))

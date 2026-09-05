@@ -144,42 +144,44 @@ export function RunShell({ runId, children }: { runId: string; children: React.R
               verdict, exceptions, cash position, and what reproduces it --
               for the reader who will never be handed a URL. */}
           {state === "complete" && (
-            <a href={`/api/runs/${runId}/report.pdf`} data-tour="run-report" className="btn btn-sm">
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.7"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden
-              >
-                <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
-                <path d="M14 3v5h5" />
-                <path d="M9 13h6M9 17h4" />
-              </svg>
-              Report
-            </a>
+            <>
+              <a href={`/api/runs/${runId}/report.pdf`} data-tour="run-report" className="btn btn-sm">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
+                  <path d="M14 3v5h5" />
+                  <path d="M9 13h6M9 17h4" />
+                </svg>
+                Report
+              </a>
+              <a href={`/api/runs/${runId}/export.csv`} className="btn btn-sm">
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.7"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden
+                >
+                  <path d="M12 3v11m0 0 4-4m-4 4-4-4" />
+                  <path d="M4 17v3h16v-3" />
+                </svg>
+                Export CSV
+              </a>
+            </>
           )}
-          <a href={`/api/runs/${runId}/export.csv`} className="btn btn-sm">
-            <svg
-              width="16"
-              height="16"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-            >
-              <path d="M12 3v11m0 0 4-4m-4 4-4-4" />
-              <path d="M4 17v3h16v-3" />
-            </svg>
-            Export CSV
-          </a>
         </div>
       </div>
 

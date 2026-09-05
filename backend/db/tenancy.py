@@ -269,6 +269,31 @@ async def fail_run(db: AsyncSession, run_id: str, error: str) -> None:
     await db.commit()
 
 
+async def fail_orphaned_runs(db: AsyncSession, error: str) -> int:
+    """Mark every run still in a non-terminal state as failed; return how many.
+
+    Called once as the worker starts. A run only ever reaches a terminal state
+    from inside the job that owns it, so anything still mid-flight when the
+    worker boots was abandoned -- the previous process was killed, OOMed, or
+    the machine rebooted under it. Left alone, those rows stream forever and
+    the console shows a run that nothing is working on any more.
+
+    This is correct only because a single worker owns the queue. If a second
+    worker is ever run concurrently, this sweep would fail that worker's live
+    runs, and it must become a lease/heartbeat check instead.
+    """
+    result = cast(
+        CursorResult[Run],
+        await db.execute(
+            update(Run)
+            .where(Run.state.not_in(("complete", "failed")))
+            .values(state="failed", error=error, updated_at=datetime.now(UTC))
+        ),
+    )
+    await db.commit()
+    return result.rowcount or 0
+
+
 @dataclass(frozen=True)
 class ExceptionDecisionRecord:
     exception_id: str
