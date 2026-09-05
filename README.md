@@ -2,6 +2,8 @@
 
 Built for the **Razorpay AI Buildathon, Track 04: AI Finance Controller**.
 
+> **The live deployment link is in the uploaded submission video** 
+
 ## What it is
 
 Ledgerline closes the books on a batch of finance data. It walks every rupee
@@ -37,8 +39,6 @@ this different from an LLM asked to reconcile a spreadsheet:
 - **Lyra**, the Q&A agent, answers questions about a finished run through 11
   tools and cites the record ids it actually read, so an invented id gets no
   citation.
-
-> **The live deployment link is in the uploaded submission video** 
 
 ## Features
 
