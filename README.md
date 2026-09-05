@@ -27,7 +27,7 @@ this different from an LLM asked to reconcile a spreadsheet:
   verifier; there is no second path.
 - Nothing is ever matched at "lower confidence". A proposal that will not tie
   out becomes an exception, not a guess.
-- Every evidence span must be a **verbatim substring** of narration the run
+- Every evidence span must be an **exact substring** of narration the run
   actually showed the model, so an invented quote is thrown out before
   verification even runs.
 - Accuracy is measured, not asserted. Synthetic corpora ship with a
@@ -44,47 +44,37 @@ this different from an LLM asked to reconcile a spreadsheet:
 
 **Matching**
 - Two deterministic linking passes plus a verifier, over the full chain: invoice, payment, settlement batch, bank credit.
-- Every sum recomputed in **integer paise**. No floating point touches money, anywhere.
-- Payout re-derived from its own batch (gross, less fees, less tax, less refunds, plus adjustments) and compared to what the bank actually credited.
+- Every sum recomputed in **integer paise** — no floating point touches money — with the payout re-derived from its own batch and compared to what the bank actually credited.
 - Date-window checks, so a credit that posted six weeks late is a break rather than a silent tie.
 
 **Honesty**
 - **13 typed exception codes**, each carrying the check it failed and the evidence behind it.
 - Nothing is ever matched at "lower confidence": a proposal that will not tie out becomes an exception, not a guess.
 - Accuracy figures are hidden when there is no answer key to score against, rather than shown as zeroes.
-- Degrades loudly: if the model is unreachable, the run still completes, reports `assist_rate = 0`, and flags itself.
 
 **The AI layer**
-- Model proposes `{links, evidence_spans, confidence}`, never an amount, never a match.
-- Evidence spans must be **verbatim substrings** of narration the run actually showed it; ungrounded quotes are rejected before verification even runs.
+- Model proposes `{links, evidence_spans, confidence}` — never an amount, never a match — and every span must be an **exact substring** of narration the run actually showed it.
 - A rejected proposal surfaces as `LLM_PROPOSAL_FAILED_VERIFY`: visible, not swallowed.
-- Column mapping resolves known headers deterministically and asks the model **only** about genuinely ambiguous ones, with many-shot worked examples.
+- Column mapping resolves known headers deterministically and asks the model **only** about genuinely ambiguous ones.
 
 **Lyra, the Q&A agent**
-- **11 tools** over the run's stored result: metrics, chains, exceptions, records, forecast, dataset, prior decisions, cross-run comparison and free-text search.
-- Multi-turn, so follow-ups resolve against what was just said.
-- Shows each lookup as it happens, then **cites the record ids it read**, collected from tool results so an invented id gets no citation.
-- Numbers are checked against tool payloads before you see them; an ungrounded answer is replaced wholesale.
+- **11 tools** over a finished run: metrics, chains, exceptions, records, forecast, dataset, prior decisions, cross-run comparison and free-text search.
+- Multi-turn, and **cites the record ids it read** — numbers are checked against tool payloads before you see them, so an ungrounded answer is replaced wholesale.
 - Tenancy is re-verified per tool call at the repository layer, whatever run id the model asks for.
 
 **Measurement**
 - Synthetic corpora ship with a **ground-truth answer key** the engine never sees, so accuracy is measured rather than asserted.
-- **11 difficulty classes**: fee/GST deltas, refunds and chargebacks in-batch, splits, duplicates, missing UTRs, payer mismatches, unrelated credits, and genuinely unmatchable records, each scaling with corpus size.
-- **7 sabotage modes** switchable from the console, applied to a copy with the truth corrupted in lockstep.
+- **11 difficulty classes** and **7 sabotage modes**, each scaling with corpus size, applied to a copy with the truth corrupted in lockstep.
 - Every run reproducible from its seed, with an output hash.
 
 **Product**
 - Six surfaces: Run, Data, Scoreboard, Chain, Exceptions, Cash position.
-- **Impact readout**: payments closed without a human, time returned, rupees cleared, and what still needs someone.
-- 14-day cash position projected from unsettled payments.
-- Branded PDF report per run, and CSV export.
-- Guided tour that builds a first-time user's corpus with them: Run to Data, seed and size, then back to the console to close the books on it. A new account starts empty; nothing is generated on anyone's behalf.
+- **Impact readout** — payments closed without a human, time returned, rupees cleared — plus a 14-day cash position, a branded PDF report per run and CSV export.
+- Guided tour that builds a first-time user's corpus with them; a new account starts empty, with nothing generated on anyone's behalf.
 
 **Operations**
-- Runs execute in a separate **arq worker**, never in the request handler.
-- Live run progress over SSE.
-- **Multi-key Gemini pool**: quota is charged per key, so three keys are three times the ceiling, not one ceiling reached three times as fast.
-- Governor enforces per-key RPM/RPD and per-user daily quota in Redis; a spent key is stepped over, not failed on.
+- Runs execute in a separate **arq worker**, never in the request handler, with live progress over SSE.
+- **Multi-key Gemini pool**: quota is charged per key, so three keys are three times the ceiling. A governor enforces per-key RPM/RPD and per-user daily quota in Redis, stepping over a spent key rather than failing on it.
 - Response cache keyed by model + prompt + schema version, storing what each answer cost.
 
 ---
@@ -191,54 +181,79 @@ flowchart TD
 
 - **P1** links a bank credit to a settlement on UTR plus an exact amount, and requires the credit to have landed near the settlement date. UTR and an exact amount are strong evidence, but not a licence to silently tie a credit that posted six weeks late.
 - **P3** links an invoice to a payment on an exact reference token, falling back to a unique amount inside a date window.
-- **The verifier** is the only code path that creates a match. It recomputes the payout from the settlement's own batch (gross, less fees, less tax, less refunds, plus adjustments: the P2 algebra) in integer paise, requires every evidence span to be a verbatim substring of narration the run actually showed, and refuses any record already claimed by another group. Both the deterministic passes and the model go through it; there is no second path.
+- **The verifier** is the only code path that creates a match. It recomputes the payout from the settlement's own batch (gross, less fees, less tax, less refunds, plus adjustments: the P2 algebra) in integer paise, requires every evidence span to be an exact substring of narration the run actually showed, and refuses any record already claimed by another group. Both the deterministic passes and the model go through it; there is no second path.
 
 `p4_subset_sum` (one credit covering many invoices) is implemented and unit
 tested in `engine/passes.py`, but is **not currently wired into `match()`**.
 
 ### System architecture
 
+Two processes on one box, split on purpose: **the API never reconciles, and the
+worker never serves a request.** Everything they share passes through Postgres
+and Redis, so either can restart without the other losing work.
+
 ```mermaid
-flowchart LR
-    UI["Next.js on Vercel<br/>six surfaces"] --> PROXY["same-origin<br/>API proxy"]
+flowchart TB
+    UI["Next.js App Router · Vercel<br/>Run · Data · Scoreboard<br/>Chain · Exceptions · Cash position"]
+    UI --> PROXY["same-origin API proxy<br/>catch-all route forwards<br/>Cookie in, Set-Cookie out"]
 
-    subgraph aws["AWS EC2 · Nginx + TLS"]
-        subgraph api["API process · FastAPI"]
-            ROUTES["routers<br/>auth · tenancy · SSE"]
-            INGEST["ingest/<br/>CSV · XLSX · PDF"]
+    subgraph ec2["AWS EC2 · Nginx · TLS"]
+        subgraph apiproc["API process · uvicorn · systemd unit ledgerline"]
+            DEPS["deps · ratelimit · etag<br/>session cookie to user_id"]
+            ROUTES["routers/<br/>auth · datasets · data<br/>runs · ask · health"]
+            INGEST["ingest/<br/>polars CSV and XLSX · pdfplumber<br/>headers · mapper · validate"]
+            OUT["report.py · impact.py<br/>PDF · CSV · figures derived at render"]
         end
 
-        subgraph worker["Worker process · arq"]
-            PIPE["run_pipeline<br/>five stages"]
-            ENGINE["engine/<br/>pure · deterministic"]
-            VERIFY["verifier<br/>integer paise"]
+        subgraph wproc["Worker process · arq · systemd unit ledgerline-worker"]
+            TASK["workers/tasks.py<br/>run state machine<br/>startup sweep of abandoned runs"]
+            PIPE["workers/pipeline.py<br/>normalising · matching · triaging<br/>explaining · scoring"]
+            ENGINE["engine/<br/>index · passes P1 to P4<br/>pure: no I/O, clock or randomness"]
+            VERIFY["engine/verifier.py<br/>recomputes in integer paise"]
         end
 
-        REDIS[("Redis<br/>queue · pub-sub · cache")]
-        PG[("PostgreSQL<br/>runs · datasets · sessions")]
+        subgraph llm["llm/ · every model call goes through here"]
+            GW["gateway.py<br/>schema-validated · model fallback chain"]
+            GOV["governor.py<br/>per-key RPM and RPD<br/>per-user daily quota"]
+            POOL["keys.py · KeyPool rotation"]
+            RCACHE["cache.py<br/>model + prompt + schema version"]
+        end
+
+        REDIS[("Redis<br/>arq queue · run trace and pub/sub<br/>governor counters · response cache")]
+        PG[("PostgreSQL<br/>users · sessions · runs<br/>datasets · dataset_files · decisions")]
     end
 
-    GEMINI["Gemini<br/>key pool · governed · cached"]
+    GEMINI["Gemini"]
 
-    PROXY --> ROUTES
-    ROUTES --> INGEST
-    ROUTES <-->|"enqueue · pub-sub"| REDIS
-    REDIS -->|"job"| PIPE
-    PIPE --> ENGINE --> VERIFY -->|"result"| PG
-    ROUTES --> PG
-    INGEST --> PG
-    PIPE -->|"progress"| REDIS
+    PROXY --> DEPS --> ROUTES
+    ROUTES --> INGEST --> PG
+    ROUTES --> OUT --> PG
+    ROUTES -->|"enqueue, job id = run id"| REDIS
+    REDIS -->|"job"| TASK
+    TASK --> PIPE --> ENGINE --> VERIFY
+    VERIFY -->|"the only writer of a match"| PG
+    TASK -->|"every state transition"| REDIS
+    REDIS -->|"pub/sub frame"| ROUTES
     ROUTES -->|"SSE"| UI
 
-    INGEST -->|"ambiguous columns"| GEMINI
-    PIPE -->|"triage residue"| GEMINI
-    GEMINI -.->|"proposals only<br/>never arithmetic"| VERIFY
+    INGEST -->|"ambiguous headers only"| GW
+    PIPE -->|"triage residue · explanations"| GW
+    ROUTES -->|"Lyra · 11 tools over a finished run"| GW
+    GW --> GOV --> POOL --> GEMINI
+    GW <--> RCACHE
+    GOV -.-> REDIS
+    RCACHE -.-> REDIS
+    GW -.->|"proposals only<br/>never arithmetic"| VERIFY
 
     classDef gate fill:#0b3d3a,stroke:#00a294,stroke-width:2px,color:#ffffff
     classDef ext fill:#fff6e5,stroke:#b7791f,color:#5c3d0a
     class VERIFY gate
     class GEMINI ext
 ```
+
+- **A run is accepted in one process and executed in another.** `POST /runs` inserts the row, enqueues the job under the run's own id and returns `202`; every state change after that reaches the browser over SSE. The stream subscribes before replaying the trace, so nothing published in between is lost.
+- **Postgres is the durable record** (users, sessions, runs with their result, metrics and forecast JSON, datasets, files, decisions); **Redis is ephemeral** (queue, 24h run trace, pub/sub, governor counters, response cache). Losing Redis costs live progress, never a finished run.
+- **A run always lands on `complete` or `failed`.** If the worker dies mid-run, the next one sweeps the abandoned row at startup — a run only ever leaves a non-terminal state from inside the job that owns it, so anything still mid-flight at boot belongs to a process that no longer exists.
 
 ### Design decisions
 
@@ -348,6 +363,5 @@ fixtures/   golden metrics, pinned per seed
 Makefile    install / run / test
 ```
 
-See [`backend/README.md`](backend/README.md) and
-[`frontend/README.md`](frontend/README.md) for environment variables and the
+See [`backend/README.md`](backend/README.md) for environment variables and the
 validation commands (`ruff`, `mypy`, `pytest`, `lint-imports`).
