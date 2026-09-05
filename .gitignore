@@ -38,9 +38,3 @@ __pycache__/
 .idea/
 .vscode/
 *.swp
-
-# Pitch/demo script -- personal notes, not part of the project.
-/pitch-script.txt
-/record-steps.txt
-/script.txt
-/video-assets/
